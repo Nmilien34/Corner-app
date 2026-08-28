@@ -4,7 +4,7 @@
 import OpenAI from "openai";
 
 import { env } from "../config/env";
-import { AppError } from "../lib/errors";
+import { AppError, ReasoningBudgetExhaustedError } from "../lib/errors";
 
 export interface LlmMessage {
   role: "system" | "user" | "assistant";
@@ -72,18 +72,31 @@ export function createLlmService(): LlmService {
       );
 
       const choice = response.choices[0];
+
+      // SHARED GUARD. Every structured-output call in Corner goes through
+      // complete(), so this check lives here rather than at each call site —
+      // narration scripts, action-item extraction and summaries will all meet
+      // it, and the symptom (a 200 with empty content) gives no hint.
       if (!choice?.message?.content) {
-        // Name the likely cause. An empty completion from a reasoning model is
-        // almost always the token budget being exhausted by reasoning, and the
-        // generic message sends people looking at the prompt instead.
         const reason = choice?.finish_reason ?? "unknown";
+        const usage = response.usage as
+          | { completion_tokens?: number; completion_tokens_details?: { reasoning_tokens?: number } }
+          | undefined;
+
+        if (reason === "length") {
+          throw new ReasoningBudgetExhaustedError({
+            model: response.model,
+            maxTokens,
+            reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens,
+            completionTokens: usage?.completion_tokens,
+          });
+        }
+
         throw new AppError(
           "llm_empty_response",
-          reason === "length"
-            ? `Model returned no content (finish_reason=length). The token budget was consumed by reasoning before any output — raise maxTokens.`
-            : `Model returned no content (finish_reason=${reason})`,
+          `Model returned no content (finish_reason=${reason})`,
           502,
-          undefined,
+          { model: response.model, finishReason: reason },
           true,
         );
       }

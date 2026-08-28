@@ -1,10 +1,29 @@
 # Two services from one repo: the API and the background worker.
 #
+# BOTH ARE DEPLOYED. corner-backend serves HTTP; corner-worker polls the
+# Mongo-backed job queue. They build from the same commit but deploy
+# INDEPENDENTLY, and on 2026-08-28 they drifted: the worker ran current code
+# while the web service served a build from two commits earlier, returning 501
+# from handlers that had been implemented. /healthz now reports the running
+# commit and service name so that state is one curl away rather than a
+# diagnosis (see lib/build-info.ts).
+#
 # Leanient's root manifest is the shape being followed (Pepta has none). The
 # worker is the addition — parsing, embedding, narration and extraction are all
 # far too slow for a request cycle.
 
-# Secrets live in ONE environment group that both services pull from.
+# THE corner-secrets ENVIRONMENT GROUP IS AUTHORITATIVE.
+#
+# Both services pull every shared secret from it via `fromGroup`, and the
+# per-service duplicates have been removed so there is exactly one place a
+# value can be set. Do not re-add a key here that the group already defines:
+# a per-service entry OVERRIDES the group, which reintroduces silent drift
+# between the API and the worker — and they must agree on the database, the
+# bucket and the JWT secret or the worker processes jobs against different
+# infrastructure than the API wrote them to.
+#
+# Non-secret, per-service values (NODE_ENV, LOG_LEVEL, worker tuning) stay
+# inline deliberately: they legitimately differ per service.
 #
 # `sync: false` means "this value is deliberately NOT in the repo — a human sets
 # it in the Render dashboard". Render never invents a value for it, and a

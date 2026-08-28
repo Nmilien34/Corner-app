@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import { isDatabaseReachable } from "../db/connect";
 import { asyncHandler } from "../lib/async-handler";
+import { buildInfo } from "../lib/build-info";
 import { sendData } from "../lib/responses";
 
 export const healthRouter: Router = Router();
@@ -12,6 +13,16 @@ healthRouter.get(
   "/healthz",
   asyncHandler(async (_req, res) => {
     const database = isDatabaseReachable();
-    sendData(res, { status: database ? "ok" : "degraded", database });
+    const build = buildInfo("corner-backend");
+
+    // commit and service are here so a stale build is one curl away, not a
+    // diagnosis. See lib/build-info.ts.
+    sendData(res, {
+      status: database ? "ok" : "degraded",
+      database,
+      service: build.service,
+      commit: build.commitShort,
+      startedAt: build.startedAt,
+    });
   }),
 );

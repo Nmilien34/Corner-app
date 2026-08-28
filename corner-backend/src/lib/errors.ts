@@ -102,6 +102,43 @@ export class InternalError extends AppError {
   }
 }
 
+/**
+ * A reasoning model spent its entire token budget thinking and emitted nothing.
+ *
+ * `max_completion_tokens` on a reasoning model budgets reasoning tokens AND
+ * visible output. When reasoning consumes it, the API returns
+ * `finish_reason: "length"` with EMPTY content and NO ERROR — a 200 response
+ * carrying nothing.
+ *
+ * Measured on gpt-5-nano: ~128 reasoning tokens for a two-word reply, and far
+ * more on a prompt carrying retrieved passages. A budget sized for the answer
+ * alone is consumed before a single visible token appears.
+ *
+ * This is named because the symptom points nowhere near the cause. It looks
+ * like a prompt problem, a model problem, or a parsing bug, and every
+ * structured-output call in Corner will hit it — narration scripts,
+ * action-item extraction, summaries and chat are all long-input calls to a
+ * reasoning model. Whoever meets it second should not have to re-derive it.
+ */
+export class ReasoningBudgetExhaustedError extends AppError {
+  public constructor(details: {
+    model: string;
+    maxTokens: number;
+    reasoningTokens?: number;
+    completionTokens?: number;
+  }) {
+    super(
+      "reasoning_budget_exhausted",
+      `Model "${details.model}" returned empty content with finish_reason="length". ` +
+        `Its reasoning consumed the whole ${details.maxTokens}-token budget before producing output. ` +
+        "Raise maxTokens — this is not a prompt problem.",
+      502,
+      details,
+      true,
+    );
+  }
+}
+
 export class NotImplementedError extends AppError {
   public constructor(message = "Not implemented") {
     super("not_implemented", message, 501, undefined, true);

@@ -7,6 +7,7 @@
 
 import { env } from "../config/env";
 import { connectToDatabase, disconnectFromDatabase } from "../db/connect";
+import { buildInfo } from "../lib/build-info";
 import { logger } from "../lib/logger";
 import { ProcessingJobModel } from "../models";
 import { assertRegistryComplete, JobNotImplementedError, jobHandlers } from "./registry";
@@ -139,11 +140,19 @@ export async function startWorker(): Promise<void> {
   // the vector index; only chat needs it.
   await reportVectorIndexStatus();
 
+  // Same identity the API reports at /healthz, so the two can be compared
+  // directly. They build from one commit but deploy independently.
+  const build = buildInfo("corner-worker");
   logger.info(
     {
+      service: build.service,
+      commit: build.commitShort,
+      startedAt: build.startedAt,
+      nodeEnv: build.nodeEnv,
       concurrency: env.WORKER_CONCURRENCY,
       pollIntervalMs: env.WORKER_POLL_INTERVAL_MS,
       handlers: Object.keys(jobHandlers).length,
+      handlerNames: Object.keys(jobHandlers).join(","),
     },
     "corner worker started",
   );

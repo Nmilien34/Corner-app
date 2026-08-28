@@ -30,27 +30,52 @@ and idles.
 
 ## Deployed
 
-| | |
-|---|---|
-| API | **https://corner-backend-yowp.onrender.com** |
-| Health | `/healthz` → `{"data":{"status":"ok","database":true}}` |
-| Region | Render **Oregon** |
-| Database | MongoDB Atlas, **us-east-1** |
-| Storage | S3 `corner-documents`, **us-east-2** |
+| Service | | |
+|---|---|---|
+| **corner-backend** (web) | https://corner-backend-yowp.onrender.com | Oregon |
+| **corner-worker** (background) | no URL — it binds no port | Oregon |
+| Database | MongoDB Atlas | us-east-1 |
+| Storage | S3 `corner-documents` | us-east-2 |
 
-**The worker is NOT deployed.** Verified 2026-08-28 by enqueueing a job against
-the production database: nothing claimed it in 60 seconds.
+Both draw shared secrets from the **`corner-secrets`** environment group, which
+is authoritative — per-service duplicates were removed so a value has exactly
+one home. A per-service entry overrides the group, which is how the two
+services silently end up pointing at different infrastructure.
 
-That means the pipeline is dark in production. The API answers every route and
-`/healthz` is green, but **nothing parses, embeds, narrates or extracts** —
-every one of those runs through `ProcessingJob`, and only the worker polls it.
-Uploaded documents would sit at `uploaded` forever with no error anywhere.
+### A healthy API says nothing about the worker
 
-`render.yaml` defines `corner-worker` as a second service (`type: worker`,
-`npm run start:worker`). It needs creating in Render, with the same
-`corner-secrets` env group as the web service.
+`corner-worker` runs `npm run start:worker` and polls the Mongo-backed
+`ProcessingJob` queue. **Everything slow happens there**: parsing, embedding,
+narration, action-item extraction, summaries, and the orphan sweep.
 
-## Folder map
+If it is not running, the API stays green and every route answers, but uploaded
+documents sit at `uploaded` forever with no error anywhere. Nothing about
+`/healthz` reveals it. This was the actual state on 2026-08-28 until the worker
+service was created.
+
+### Checking what is actually running
+
+`/healthz` reports the running commit and service name:
+
+```bash
+curl -s https://corner-backend-yowp.onrender.com/healthz
+{"data":{"status":"ok","database":true,"service":"corner-backend",
+         "commit":"78fbfe3","startedAt":"2026-08-28T..."}}
+```
+
+Compare `commit` against `git log --oneline -1`. The worker logs the same
+identity at startup — service, commit, handler count — so its logs answer the
+same question.
+
+This exists because three separate things looked healthy while not being
+current in one day: a stale Pepta clone, an absent worker, and a web service
+serving a build two commits behind while the worker ran current code. The
+commit field turns each of those from an investigation into one request.
+
+To check the worker without log access, enqueue a job and see whether anything
+claims it — `cleanup-orphaned-blobs` is safe, since it is dry-run by default.
+
+## Folder map## Folder map
 
 ```
 Corner-app/

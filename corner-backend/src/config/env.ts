@@ -65,6 +65,18 @@ const envSchema = z.object({
   // reader has to already know what went wrong to read it. These checks name
   // the actual mistake instead. Whitespace is trimmed rather than reported —
   // a trailing newline from a copy-paste is never deliberate.
+  /**
+   * Injected by Render into every service. Absent locally.
+   *
+   * Surfaced in /healthz and in the worker's startup log so "is this running
+   * what I just pushed" is one curl rather than an investigation. Three times
+   * in one day something looked healthy while not being current — a stale
+   * clone, an absent worker, and a stale build serving 501s from a commit two
+   * ahead of it. Each cost a round of diagnosis that this answers directly.
+   */
+  RENDER_GIT_COMMIT: z.string().optional(),
+  RENDER_SERVICE_NAME: z.string().optional(),
+
   MONGODB_URI: z
     .string()
     .min(1, "MONGODB_URI is required")
