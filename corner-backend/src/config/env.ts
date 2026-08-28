@@ -166,11 +166,12 @@ const envSchema = z.object({
   // Set it ONLY for S3-compatible providers that need an explicit host, e.g.
   // Cloudflare R2 (https://<account>.r2.cloudflarestorage.com).
   STORAGE_ENDPOINT: z.string().optional(),
-  // A REAL AWS region. "auto" is a Cloudflare R2 convention and the AWS SDK
-  // rejects it — it was the default here only because the docs originally
-  // assumed R2. us-east-1 matches Atlas and Render; see docs/costs.md.
-  STORAGE_REGION: z.string().default("us-east-1"),
-  STORAGE_BUCKET: z.string().optional(),
+  // A REAL AWS region. "auto" is a Cloudflare R2 convention the AWS SDK
+  // rejects. us-east-2 is where corner-documents lives; Atlas is us-east-1 and
+  // Render is Oregon, so this is deliberately inter-region — see docs/costs.md
+  // for why that was the right call rather than an oversight.
+  STORAGE_REGION: z.string().default("us-east-2"),
+  STORAGE_BUCKET: z.string().default("corner-documents"),
   STORAGE_ACCESS_KEY_ID: z.string().optional(),
   STORAGE_SECRET_ACCESS_KEY: z.string().optional(),
 
@@ -189,6 +190,24 @@ const envSchema = z.object({
   // Orphan sweep grace period. Content younger than this is never a cleanup
   // candidate, which is what makes the counter-free sweep safe.
   ORPHAN_GRACE_HOURS: z.coerce.number().int().positive().default(24),
+
+  /**
+   * Orphan sweep dry-run. DEFAULTS TO TRUE — deletion is opt-in.
+   *
+   * The sweep runs unattended and deletes user documents. Defaulting to
+   * dry-run means a misconfigured environment, a bad grace period, or a bug in
+   * the anti-join produces a LOG rather than data loss, and the delete list can
+   * be read before anything acts on it.
+   *
+   * Set to "false" only after reviewing a real run's output.
+   */
+  ORPHAN_SWEEP_DRY_RUN: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+
+  /** Ceiling per run, so a bug cannot cascade across the whole bucket at once. */
+  ORPHAN_SWEEP_MAX_PER_RUN: z.coerce.number().int().positive().default(50),
 });
 
 const parsed = envSchema.safeParse(process.env);

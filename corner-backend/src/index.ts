@@ -4,8 +4,10 @@ import { env } from "./config/env";
 import { connectToDatabase, disconnectFromDatabase } from "./db/connect";
 import { logger } from "./lib/logger";
 import { createApp } from "./app";
+import { assertExpectedBucket } from "./services/storage.service";
 
 async function main(): Promise<void> {
+  assertExpectedBucket();
   await connectToDatabase();
 
   const app = createApp();

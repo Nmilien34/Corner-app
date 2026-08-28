@@ -11,6 +11,7 @@ import { logger } from "../lib/logger";
 import { ProcessingJobModel } from "../models";
 import { assertRegistryComplete, JobNotImplementedError, jobHandlers } from "./registry";
 import { reportVectorIndexStatus } from "./vector-index-check";
+import { assertExpectedBucket } from "../services/storage.service";
 
 let running = false;
 let stopping = false;
@@ -129,6 +130,9 @@ export async function startWorker(): Promise<void> {
   running = true;
 
   assertRegistryComplete();
+  // The worker is the process that DELETES. A sweep pointed at another
+  // app's bucket is unrecoverable, so this refuses to start before it can.
+  assertExpectedBucket();
   await connectToDatabase();
 
   // Warn, do not crash. Parsing, narration and action items all work without

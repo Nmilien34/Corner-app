@@ -28,6 +28,45 @@ not by convention — see `CONVENTIONS.md` → Analytics. Document titles,
 filenames, extracted text, action-item content and chat messages are all user
 content and none may become an event or person property.
 
+## Storage isolation
+
+Corner's documents live in a **dedicated S3 bucket, `corner-documents`**, with
+its own IAM user (`corner-backend`) whose policy is scoped to
+`arn:aws:s3:::corner-documents` alone. Credentials belonging to other Boltzman
+applications have been removed from Corner's environment.
+
+The isolation is at **both** levels, and both matter. A shared bucket with
+separate prefixes would rely on every code path getting its prefix right; a
+shared credential would let a bug reach data it was never meant to see. Here
+neither is possible: Corner physically cannot address another application's
+bucket, and no other application's credential can address Corner's.
+
+Two further defences, because credentials outlive the assumptions behind them:
+
+- Every object Corner writes lives under a single `corner/` root, enforced by
+  the key builder rather than by convention, and the storage layer refuses to
+  write to or delete anything outside it.
+- The API and the worker both **refuse to start** if `STORAGE_BUCKET` is not
+  `corner-documents`. The worker is the process that deletes, and a sweep
+  pointed at the wrong bucket is not recoverable.
+
+Bucket configuration: all public access blocked, SSE-S3 encryption with a
+bucket key, tagged `app=corner`.
+
+## Deletion is irreversible, by configuration as well as by code
+
+**Object versioning is disabled on the bucket, deliberately.**
+
+This is what makes the deletion promise below literally true. With versioning
+enabled, deleting an object writes a delete marker and retains every prior
+version — the bytes remain, recoverable, indefinitely. A policy claiming
+documents are destroyed would simply be false, and the discrepancy would only
+surface during a subject-access request or a breach.
+
+The trade is real and was accepted: there is no undelete. An accidental
+deletion is permanent, and the orphan sweep's dry-run default exists partly
+because of that.
+
 ## What deletion actually does
 
 Precision matters here, because "delete" is a promise.

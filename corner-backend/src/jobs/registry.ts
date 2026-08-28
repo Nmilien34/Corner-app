@@ -8,6 +8,8 @@ import type { JobType } from "@corner/shared";
 import { JOB_TYPES } from "@corner/shared";
 
 import type { Logger } from "../lib/logger";
+import { sweepOrphanedBlobs } from "./handlers/cleanup-orphaned-blobs";
+import { embedChunks } from "./handlers/embed-chunks";
 
 export interface JobContext {
   jobId: string;
@@ -46,10 +48,12 @@ export const jobHandlers: Record<JobType, JobHandler> = {
     "parse-document",
     "Fetch the blob, extract text/outline/pageOffsets, write DocumentContent, enqueue embed-chunks",
   ),
-  "embed-chunks": notImplemented(
-    "embed-chunks",
-    "Batch-embed chunks missing embeddedAt; assert the provider's width equals EMBEDDING_DIMENSIONS",
-  ),
+  // IMPLEMENTED. Idempotent via the embeddedAt partial index — a retry
+  // re-selects only unembedded chunks, so it costs the remainder rather than
+  // re-spending the whole document.
+  "embed-chunks": async (payload, context) => {
+    await embedChunks(payload, context);
+  },
   "generate-narration-script": notImplemented(
     "generate-narration-script",
     "Build a verbatim or podcast script from chunks, store it, enqueue synthesize-audio-segments",
@@ -66,10 +70,11 @@ export const jobHandlers: Record<JobType, JobHandler> = {
     "generate-summary",
     "Summarize a document or one outline node, write DocumentSummary",
   ),
-  "cleanup-orphaned-blobs": notImplemented(
-    "cleanup-orphaned-blobs",
-    "Anti-join DocumentContent against Document.contentId, older than ORPHAN_GRACE_HOURS, delete blobs and derived artifacts",
-  ),
+  // IMPLEMENTED. Dry-run by default (ORPHAN_SWEEP_DRY_RUN), so it reports what
+  // it would delete and stops until that is explicitly set to "false".
+  "cleanup-orphaned-blobs": async (_payload, context) => {
+    await sweepOrphanedBlobs(context);
+  },
 };
 
 /** Fails at boot if a type has no handler, rather than at dequeue time. */

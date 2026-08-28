@@ -22,6 +22,40 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env } from "../config/env";
 import { AppError } from "../lib/errors";
 import { logger } from "../lib/logger";
+import { CORNER_ROOT } from "./storage-keys";
+
+/**
+ * The only bucket Corner is allowed to touch.
+ *
+ * Asserted at startup rather than trusted, because the failure it prevents is
+ * silent: a stale STORAGE_BUCKET pointing at another Boltzman app's bucket
+ * would upload documents there and, worse, let the orphan sweep enumerate and
+ * delete inside it. Refusing to boot is loud and recoverable; discovering it
+ * afterwards is neither.
+ *
+ * Change this only alongside an actual bucket migration.
+ */
+export const EXPECTED_BUCKET = "corner-documents";
+
+/**
+ * BUCKET CORS IS LOAD-BEARING — read before editing the CORS rule.
+ *
+ * pdf.js streams a PDF using HTTP RANGE REQUESTS, fetching only the byte
+ * ranges it needs for the pages being viewed. That is what makes a 350-page
+ * document open without downloading the whole file, and it is the foundation
+ * of the reader's virtualization.
+ *
+ * It depends on the bucket's CORS rule exposing `Accept-Ranges` and
+ * `Content-Range`. Without them the browser hides those headers, pdf.js cannot
+ * tell that ranges are supported, and it SILENTLY falls back to downloading
+ * the entire file. Nothing errors. The symptom is a slow first page and a
+ * memory spike on large documents — which reads as "the reader is slow", not
+ * as "someone edited a CORS rule".
+ *
+ * Current rule allows GET/HEAD/PUT from any origin with both headers exposed.
+ * If you narrow it, keep ExposeHeaders intact.
+ */
+export const REQUIRED_CORS_EXPOSE_HEADERS = ["Accept-Ranges", "Content-Range"] as const;
 
 export interface PresignedUpload {
   uploadUrl: string;
@@ -68,6 +102,19 @@ const DEFAULT_DOWNLOAD_TTL_SECONDS = 3600;
 /** S3's DeleteObjects hard limit. */
 const DELETE_BATCH = 1000;
 
+/** Nothing Corner writes or deletes may sit outside its root. */
+function assertInsideRoot(key: string): void {
+  if (!key.startsWith(CORNER_ROOT) || key.includes("..")) {
+    throw new AppError(
+      "storage_key_escapes_root",
+      `Refusing to operate on a key outside ${CORNER_ROOT}: ${key}`,
+      500,
+      undefined,
+      false,
+    );
+  }
+}
+
 function requireConfig(): { bucket: string; region: string } {
   const bucket = env.STORAGE_BUCKET;
   if (!bucket) {
@@ -80,6 +127,32 @@ function requireConfig(): { bucket: string; region: string } {
     );
   }
   return { bucket, region: env.STORAGE_REGION };
+}
+
+/**
+ * Fails fast when STORAGE_BUCKET is not the bucket Corner owns.
+ *
+ * Called from the worker and API entry points. The worker matters most: it is
+ * the process that DELETES, and a sweep pointed at someone else's bucket is
+ * unrecoverable in a way an errant upload is not.
+ */
+export function assertExpectedBucket(): void {
+  const bucket = env.STORAGE_BUCKET;
+  if (bucket !== EXPECTED_BUCKET) {
+    throw new Error(
+      [
+        "Refusing to start: STORAGE_BUCKET is not Corner's bucket.",
+        "",
+        `  expected: ${EXPECTED_BUCKET}`,
+        `  actual:   ${bucket}`,
+        "",
+        "  Corner writes documents and runs an unattended delete sweep. Both",
+        "  must be confined to its own bucket. If this is a deliberate bucket",
+        "  migration, update EXPECTED_BUCKET in storage.service.ts in the same",
+        "  commit as the environment change.",
+      ].join("\n"),
+    );
+  }
 }
 
 async function streamToBuffer(body: unknown): Promise<Buffer> {
@@ -145,6 +218,7 @@ export function createStorageService(): StorageService {
     },
 
     async putObject({ key, body, contentType }) {
+      assertInsideRoot(key);
       await client.send(
         new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: contentType }),
       );
@@ -156,10 +230,12 @@ export function createStorageService(): StorageService {
     },
 
     async deleteObject(key) {
+      assertInsideRoot(key);
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
     },
 
     async deleteObjects(keys) {
+      for (const key of keys) assertInsideRoot(key);
       for (let i = 0; i < keys.length; i += DELETE_BATCH) {
         const batch = keys.slice(i, i + DELETE_BATCH);
         if (batch.length === 0) continue;
@@ -176,7 +252,9 @@ export function createStorageService(): StorageService {
       // Guard against a caller passing "" or "/" and emptying the bucket. The
       // orphan sweep runs unattended, so a malformed prefix must fail rather
       // than match everything.
-      if (!prefix || prefix.length < 4 || !prefix.endsWith("/")) {
+      // Must be inside corner/ AND look like a real prefix. The sweep runs
+      // unattended, so a malformed value has to fail rather than match widely.
+      if (!prefix.startsWith(CORNER_ROOT) || prefix.length <= CORNER_ROOT.length || !prefix.endsWith("/")) {
         throw new AppError(
           "storage_unsafe_prefix",
           `Refusing to delete by prefix ${JSON.stringify(prefix)}`,

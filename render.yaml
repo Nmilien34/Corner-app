@@ -24,8 +24,6 @@ envVarGroups:
         sync: false
       - key: STORAGE_ENDPOINT
         sync: false
-      - key: STORAGE_BUCKET
-        sync: false
       - key: STORAGE_ACCESS_KEY_ID
         sync: false
       - key: STORAGE_SECRET_ACCESS_KEY
@@ -61,9 +59,12 @@ services:
       - key: LOG_LEVEL
         value: info
       # A REAL AWS region — "auto" is an R2-ism the AWS SDK rejects.
-      # Matches Atlas and Render, so object reads stay in-region.
+      # Deliberately inter-region: the bucket is us-east-2, Render is Oregon.
+      # See docs/costs.md for the reasoning.
       - key: STORAGE_REGION
-        value: us-east-1
+        value: us-east-2
+      - key: STORAGE_BUCKET
+        value: corner-documents
       - key: JWT_EXPIRES_IN
         value: 30d
 
@@ -85,9 +86,12 @@ services:
       - key: LOG_LEVEL
         value: info
       # A REAL AWS region — "auto" is an R2-ism the AWS SDK rejects.
-      # Matches Atlas and Render, so object reads stay in-region.
+      # Deliberately inter-region: the bucket is us-east-2, Render is Oregon.
+      # See docs/costs.md for the reasoning.
       - key: STORAGE_REGION
-        value: us-east-1
+        value: us-east-2
+      - key: STORAGE_BUCKET
+        value: corner-documents
       - key: JWT_EXPIRES_IN
         value: 30d
       # Lower than the API's: the worker is a background poller, and this

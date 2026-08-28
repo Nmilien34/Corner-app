@@ -8,7 +8,7 @@
 
 import { env } from "../config/env";
 import { createStorageService } from "../services/storage.service";
-import { sourceKey, thumbnailKey } from "../services/storage-keys";
+import { CORNER_ROOT, sourceKey, thumbnailKey } from "../services/storage-keys";
 
 function fail(title: string, lines: string[]): never {
   console.error(`\n  FAIL  ${title}\n`);
@@ -75,7 +75,82 @@ async function main(): Promise<void> {
   console.log(`  INFO  ${keys.length} object(s) under documents/`);
   for (const k of keys) console.log(`          ${k}`);
 
-  console.log("\n  Read-only checks passed. No objects were written.\n");
+  // ---- Write round-trip -----------------------------------------------------
+  //
+  // Only runs with --write. The read-only path stays the default so this
+  // script is safe to run against a bucket holding real documents.
+  if (!process.argv.includes("--write")) {
+    console.log("\n  Read-only checks passed. No objects were written.");
+    console.log("  Pass --write to round-trip a real object.\n");
+    return;
+  }
+
+  const { createHash, randomBytes } = await import("node:crypto");
+
+  // A synthetic content hash so the key goes through the real builder — this
+  // verifies the corner/ root is applied by the code that will apply it in
+  // production, not by the test.
+  const payload = randomBytes(4096);
+  const hash = createHash("sha256").update(payload).digest("hex");
+  const key = sourceKey(hash, "bin");
+
+  console.log("\n  Write round-trip");
+  console.log(`    key       ${key}`);
+
+  if (!key.startsWith(CORNER_ROOT)) {
+    fail("Key builder produced a key outside the corner/ root", [key]);
+  }
+  console.log(`    root      OK — inside ${CORNER_ROOT}`);
+
+  const before = await storage.listPrefix("", 5);
+  const outsideBefore = before.filter((k) => !k.startsWith(CORNER_ROOT));
+
+  console.log("\n    1. presigned upload...");
+  const presigned = await storage.createPresignedUpload({
+    key, mimeType: "application/octet-stream", byteSize: payload.length,
+  });
+  const put = await fetch(presigned.uploadUrl, {
+    method: "PUT",
+    body: new Uint8Array(payload),
+    headers: { "Content-Type": "application/octet-stream" },
+  });
+  if (!put.ok) fail(`Presigned PUT failed: ${put.status} ${put.statusText}`, [
+    await put.text().then((t) => t.slice(0, 300)).catch(() => ""),
+  ]);
+  console.log(`       uploaded ${payload.length} bytes via presigned URL`);
+
+  console.log("    2. exists...");
+  if (!(await storage.objectExists(key))) fail("Object not found after upload", [key]);
+  console.log("       present");
+
+  console.log("    3. fetch back and compare bytes...");
+  const fetched = await storage.getObject(key);
+  const same = fetched.length === payload.length && fetched.equals(payload);
+  console.log(`       ${fetched.length} bytes, sha match: ${
+    createHash("sha256").update(fetched).digest("hex") === hash}`);
+  if (!same) fail("Round-tripped bytes differ from what was uploaded", []);
+
+  console.log("    4. presigned download...");
+  const dl = await storage.createPresignedDownload({ key });
+  const got = await fetch(dl.url);
+  const viaUrl = Buffer.from(await got.arrayBuffer());
+  if (!viaUrl.equals(payload)) fail("Presigned download returned different bytes", []);
+  console.log("       presigned GET returned identical bytes");
+  console.log(`       Accept-Ranges: ${got.headers.get("accept-ranges") ?? "(absent)"}`);
+
+  console.log("    5. delete...");
+  await storage.deleteObject(key);
+  if (await storage.objectExists(key)) fail("Object still present after delete", [key]);
+  console.log("       gone");
+
+  const after = await storage.listPrefix("", 20);
+  const outsideAfter = after.filter((k) => !k.startsWith(CORNER_ROOT));
+  console.log(`\n    containment: ${outsideAfter.length} object(s) outside ${CORNER_ROOT}`);
+  if (outsideAfter.length !== outsideBefore.length) {
+    fail("Something landed outside the corner/ root", outsideAfter);
+  }
+
+  console.log("\n  Write round-trip passed. Test object removed.\n");
 }
 
 main().catch((error: unknown) => {

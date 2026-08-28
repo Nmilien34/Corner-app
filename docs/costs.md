@@ -71,44 +71,63 @@ It does mean:
 - Revisit when monthly listening hours pass roughly 50,000, or whenever egress
   becomes visible next to TTS spend.
 
-## `STORAGE_REGION` was wrong for S3
+## Deployment topology — corrected 2026-08-28
 
-**Fixed 2026-08-28.** `render.yaml` hardcoded `STORAGE_REGION: auto` on both
-services and `config/env.ts` defaulted to `"auto"`.
+An earlier revision of this file asserted that Atlas and Render were both in
+us-east-1 and that the bucket should match them. **Two of those three claims
+were wrong.** Verified:
 
-`auto` is a Cloudflare R2 convention and **the AWS SDK rejects it**. This was a
-live misconfiguration inherited from the R2 assumption, invisible only because
-`StorageService` throws `not implemented`, so nothing had ever asked the SDK to
-resolve a region. It would have surfaced as the first failure the moment storage
-was implemented — at which point it would have looked like a storage bug rather
-than a stale default.
+| Component | Region | How verified |
+|---|---|---|
+| Render | **Oregon** | Render dashboard, 6 services |
+| Atlas | **us-east-1** (N. Virginia) | Atlas cluster page; corroborated by the shard host resolving through `compute-1.amazonaws.com`, us-east-1's legacy EC2 domain |
+| S3 `corner-documents` | **us-east-2** (Ohio) | bucket config |
 
-Now `us-east-1` in all three places.
+Three regions, none matching. That is deliberate, not drift.
 
-## Region alignment — fixed 2026-08-28
+### Why inter-region is the right call here
 
-The bucket was originally created in **us-east-2** (Ohio) while Atlas and Render
-are both in **us-east-1** (N. Virginia). That meant **every object read crossed
-an AWS region boundary**.
+Worker-to-S3 traffic crosses regions at roughly **$0.02/GB**. The instinct is to
+co-locate, but it does not pay for itself:
 
-Cross-region transfer is billed *separately from internet egress* — it is a
-second line item, not a discount on the first — and it adds a round trip of
-latency to every blob fetch. On the audio path that lands on top of the egress
-cost already described above, so the two compound: each streamed segment would
-have been billed once to leave us-east-2 and again to leave AWS.
+**The dominant cost is unaffected by region.** Audio streaming to phones is
+internet egress no matter which region it leaves from — roughly $0.09/GB, and
+the figures earlier in this file are unchanged. Inter-region only touches the
+worker's own reads and writes: pulling a source PDF to parse, pushing generated
+audio and thumbnails back. Each document is fetched a handful of times during
+processing, then served to users thousands of times. The inter-region line is a
+rounding error on a rounding error.
 
-**The bucket has been moved to us-east-1.** This was done while it was
-effectively empty, which is the only cheap moment to do it — migrating a bucket
-holding real user documents means copying every object (billed), re-signing
-every stored key, and a window where `Document.contentId` points at blobs in two
-places. The fix cost nothing now and would have been genuinely disruptive later.
+**Recreating an empty bucket is not free either.** The bucket already has its
+IAM user, scoped policy, CORS rule, encryption and public-access blocks
+configured. Rebuilding all of that to save cents per gigabyte on the smaller
+half of the traffic is work with a negative return.
 
-`STORAGE_REGION` is now `us-east-1` in `config/env.ts`, both services in
-`render.yaml`, and `.env.example`.
+**Revisit if** the worker starts reading source documents repeatedly rather than
+once per parse — a re-embedding sweep over the whole corpus, say. That would
+invert the ratio, and at that point moving the bucket is worth costing out.
 
-## `STORAGE_ENDPOINT` is empty for AWS
+### `STORAGE_ENDPOINT` stays empty
 
-The AWS SDK derives its endpoint from the region. `STORAGE_ENDPOINT` is set only
-for S3-compatible providers that need an explicit host — Cloudflare R2 being the
-one this codebase would plausibly move to. Leaving it empty is correct for the
-deployed setup, not an oversight.
+The SDK derives the virtual-hosted URL from the region. Setting an explicit
+endpoint pushes the SDK toward **path-style** addressing, which breaks
+presigned signatures. Empty is correct for AWS; set it only for S3-compatible
+providers that require an explicit host.
+
+## Bucket CORS is load-bearing
+
+The bucket's CORS rule exposes `Accept-Ranges` and `Content-Range`. That is not
+cosmetic: **pdf.js streams PDFs using HTTP range requests**, fetching only the
+byte ranges for pages being viewed, which is what lets a 350-page document open
+without downloading the whole file and is the foundation of the reader's
+virtualization.
+
+Without those headers exposed, the browser hides them, pdf.js cannot tell
+ranges are supported, and it **silently falls back to downloading the entire
+file**. Nothing errors. The symptom is a slow first page and a memory spike on
+large documents — which reads as "the reader is slow", not "someone edited a
+CORS rule".
+
+The same warning is on `REQUIRED_CORS_EXPOSE_HEADERS` in
+`corner-backend/src/services/storage.service.ts`, where anyone changing storage
+configuration will encounter it.
