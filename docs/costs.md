@@ -131,3 +131,52 @@ CORS rule".
 The same warning is on `REQUIRED_CORS_EXPOSE_HEADERS` in
 `corner-backend/src/services/storage.service.ts`, where anyone changing storage
 configuration will encounter it.
+
+## Vector storage — the disk constraint
+
+Disk, not egress, is the binding constraint today: Corner shares a 10 GB M10
+cluster. Embeddings dominate what Corner writes to it, so their representation
+is the single biggest lever on that ceiling.
+
+Measured with the `bson` serializer at 1536 dimensions:
+
+| Representation | Bytes per chunk | Per dimension |
+|---|---|---|
+| Array of doubles (`[Number]`) | 20,411 | 13.29 |
+| **`binData` vector, float32** | **6,167** | **4.01** |
+
+**3.31x smaller — ~14 KB saved per chunk.** Scaled:
+
+| Chunks | Array of doubles | binData |
+|---|---|---|
+| 500 (one book) | 10 MB | 3 MB |
+| 5,000 | 97 MB | 29 MB |
+| 50,000 | 973 MB | **294 MB** |
+
+At 50,000 chunks the difference is ~680 MB on a 10 GB cluster already holding
+2.2 GB of another application's data. That is the difference between vectors
+being a line item and vectors being the reason the cluster fills.
+
+The saving beats the naive 8-bytes-to-4 arithmetic because a BSON array is not
+a packed buffer: every element carries a type byte, a **stringified index key**
+(`"0"` … `"1535"`) and a null terminator — 13.29 bytes per dimension, not 8.
+Atlas's own documentation gives the same ratio, describing binData as requiring
+"about three times less disk space".
+
+Chunk *text* is stored alongside and is comparatively small — roughly 1.8 KB per
+chunk at the current target size — so after this change text and vector are the
+same order of magnitude rather than the vector being 10x the text.
+
+### Quantization does not help this
+
+Scalar (int8) and binary (int1) quantization compress the **in-memory index**,
+not the stored documents. Atlas: *"The full fidelity vectors are stored in their
+own data structure on disk."*
+
+| Quantization | RAM vs unquantized | Disk |
+|---|---|---|
+| Scalar (int8) | ~1/3.75 | unchanged |
+| Binary (int1) | ~1/24 | unchanged |
+
+It is the lever for a *memory* ceiling, not a disk one. See
+`docs/adr/0002-vector-store.md` for when to pull it.

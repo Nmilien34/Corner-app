@@ -111,6 +111,8 @@ export async function embedChunks(
           filter: { _id: chunk._id },
           update: {
             $set: {
+              // Binary (subtype 9). Mongoose casts it onto the Buffer path
+              // preserving the subtype, which is what Atlas indexes.
               embedding: results[i]?.embedding,
               embeddingModel: embeddings.model,
               embeddingDimensions: embeddings.dimensions,
@@ -125,17 +127,32 @@ export async function embedChunks(
     // One UsageEvent per BATCH, not per chunk. The provider bills per request,
     // so a per-chunk row would multiply an apportioned estimate into hundreds
     // of rows that look more precise than the number actually is.
-    await usage.record({
-      ownerId: payload.requestedBy,
-      feature: "embed",
-      unit: "tokens_in",
-      units: totalTokens,
-      provider: EMBEDDING_PROVIDER,
-      providerModel: embeddings.model,
-      contentId: payload.contentId,
-      documentId: payload.documentId,
-      jobId: context.jobId,
-    });
+    //
+    // NEVER let accounting abort the job. By this point the tokens are spent
+    // and the vectors are written; throwing here would fail a job whose work
+    // is already durable, and the retry would skip those chunks — losing the
+    // usage row permanently while the money stays spent. A missing cost row is
+    // bad; a failed job that cannot be repaired by retrying is worse.
+    try {
+      await usage.record({
+        ownerId: payload.requestedBy,
+        feature: "embed",
+        unit: "tokens_in",
+        units: totalTokens,
+        provider: EMBEDDING_PROVIDER,
+        providerModel: embeddings.model,
+        contentId: payload.contentId,
+        documentId: payload.documentId,
+        jobId: Types.ObjectId.isValid(context.jobId) ? context.jobId : undefined,
+      });
+    } catch (error) {
+      // Loud, because unit economics silently losing rows is exactly the
+      // failure UsageEvent exists to prevent.
+      logger.error(
+        { err: error, tokens: totalTokens, contentId: payload.contentId },
+        "embed-chunks: FAILED TO RECORD USAGE — cost data lost for this batch",
+      );
+    }
 
     result.embedded += batch.length;
     result.batches += 1;

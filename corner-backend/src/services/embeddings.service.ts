@@ -5,13 +5,24 @@
 // definition and docs/atlas-vector-index.md cannot drift apart.
 
 import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, EMBEDDING_PROVIDER } from "@corner/shared";
+import { Binary } from "bson";
 import OpenAI from "openai";
 
 import { env } from "../config/env";
 import { AppError } from "../lib/errors";
 
 export interface EmbeddingResult {
-  embedding: number[];
+  /**
+   * BSON binData vector (subtype 9, float32) ready to store.
+   *
+   * Encoded here rather than at the call site so there is exactly one place
+   * that decides the wire format. A plain Buffer with the default subtype is
+   * not a vector to Atlas and would be silently unindexed — the query would
+   * return nothing and nothing would error.
+   */
+  embedding: Binary;
+  /** Float32Array view, for assertions and tests. Not stored. */
+  vector: Float32Array;
   tokensConsumed: number;
 }
 
@@ -76,6 +87,9 @@ export function createEmbeddingsService(): EmbeddingsService {
         // Atlas does NOT validate vector width against the index — a mismatch
         // is accepted silently and returns bad results forever. Asserting here
         // is the only place it can be caught before the corpus is poisoned.
+        // Checked on the raw array BEFORE encoding: once packed into binData
+        // a wrong width is just a differently-sized buffer, and the mistake
+        // becomes invisible.
         if (item.embedding.length !== EMBEDDING_DIMENSIONS) {
           throw new AppError(
             "embeddings_wrong_dimensions",
@@ -91,13 +105,17 @@ export function createEmbeddingsService(): EmbeddingsService {
       const totalTokens = response.usage?.prompt_tokens ?? 0;
 
       return {
-        results: ordered.map((item) => ({
-          embedding: item.embedding,
-          // The API bills per request, not per input. Apportioning evenly keeps
-          // per-chunk attribution honest about being an estimate rather than
-          // inventing precision the provider never gave us.
-          tokensConsumed: Math.round(totalTokens / ordered.length),
-        })),
+        results: ordered.map((item) => {
+          const vector = Float32Array.from(item.embedding);
+          return {
+            embedding: Binary.fromFloat32Array(vector),
+            vector,
+            // The API bills per request, not per input. Apportioning evenly
+            // keeps per-chunk attribution honest about being an estimate
+            // rather than inventing precision the provider never gave us.
+            tokensConsumed: Math.round(totalTokens / ordered.length),
+          };
+        }),
         totalTokens,
       };
     },

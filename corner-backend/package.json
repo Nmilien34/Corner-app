@@ -15,7 +15,8 @@
     "start:worker": "node dist/jobs/worker.js",
     "dev:worker": "tsx watch src/jobs/worker.ts",
     "check:db": "tsx src/scripts/check-db.ts",
-    "check:storage": "tsx src/scripts/check-storage.ts"
+    "check:storage": "tsx src/scripts/check-storage.ts",
+    "atlas:index": "tsx src/scripts/create-vector-index.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.758.0",
@@ -26,6 +27,7 @@
     "@types/express": "^5.0.1",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.15.3",
+    "bson": "^6.10.3",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",

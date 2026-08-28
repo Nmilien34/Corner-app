@@ -40,6 +40,7 @@
 // path in the app, and the outline is immutable within a parse generation, so
 // there is nothing to drift.
 
+import type { Binary } from "bson";
 import mongoose, { Schema } from "mongoose";
 import type { Document, Types } from "mongoose";
 import { applyApiTransforms } from "./model-utils";
@@ -60,7 +61,7 @@ export interface DocumentChunkDocument extends Document<Types.ObjectId> {
   headingPath: string[];
   outlineNodeId: string | null;
   tokenCount: number;
-  embedding?: number[];
+  embedding?: Binary;
   embeddingModel?: string;
   embeddingDimensions?: number;
   embeddedAt?: Date;
@@ -102,10 +103,29 @@ const documentChunkSchema = new Schema<DocumentChunkDocument>(
 
     tokenCount: { type: Number, required: true, min: 0 },
 
-    // select:false keeps vectors off every ordinary read. A chunk list for a
-    // 400-page book would otherwise drag hundreds of thousands of floats
-    // through the app for no reason.
-    embedding: { type: [Number], select: false },
+    // BSON binData (subtype 9, float32), NOT an array of numbers.
+    //
+    // Measured at 1536 dimensions: an array of doubles serializes to 20,411
+    // bytes, the same vector as binData to 6,167 — 3.31x smaller, ~14 KB saved
+    // per chunk. Disk is the binding constraint on a shared cluster, so this is
+    // the difference between ~1 GB and ~300 MB at 50,000 chunks.
+    //
+    // The saving beats the naive 8-bytes-to-4 arithmetic because a BSON array
+    // is not a packed buffer: every element carries a type byte, a STRINGIFIED
+    // INDEX KEY ("0" … "1535") and a null terminator — 13.29 bytes per
+    // dimension rather than 8.
+    //
+    // Write with Binary.fromFloat32Array(), which emits subtype 9 with the
+    // required 0x27 float32 header. Atlas indexes this format directly; a plain
+    // Buffer with the default subtype 0 is NOT a vector to Atlas and would be
+    // silently unindexed. See docs/adr/0002-vector-store.md.
+    //
+    // select:false keeps vectors off every ordinary read regardless.
+    // `type: Buffer` is the Mongoose SchemaType; the value stored and returned
+    // is a BSON Binary. Verified against the live cluster: writing a
+    // Binary.fromFloat32Array through this path preserves SUBTYPE 9, which is
+    // what makes it a vector to Atlas rather than an opaque blob.
+    embedding: { type: Buffer, select: false },
     // Recorded per chunk, not per content: re-embedding a corpus on a new
     // model is incremental, and mixed-model vectors in one index are a silent
     // correctness bug that is otherwise invisible.

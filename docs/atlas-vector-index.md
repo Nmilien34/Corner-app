@@ -1,18 +1,42 @@
 # Atlas Vector Search index
 
-**This index cannot be created from application code.** Mongoose's
-`schema.index()` does not create Atlas Search indexes, so nothing in
-`corner-backend` will bring it into existence. It must be created by hand in
-the Atlas UI, the Atlas CLI, or the Admin API.
+**Created 2026-08-28 and READY.** Verified queryable, with retrieval proven
+end to end against the live cluster.
 
-A deploy that skips it does **not** fail at boot. It fails at query time, the
-first time someone asks a document a question. The worker warns loudly about
-this at startup (`jobs/vector-index-check.ts`) — it warns rather than crashing,
-because parsing, narration, action items and summaries all work without it and
-refusing to start would take out four working features to protect one.
+## It is created by script, not by hand
 
-Treat creating it as part of provisioning an environment, alongside creating
-the database user.
+An earlier revision of this file said the index could only be created in the
+Atlas UI. That is no longer true — the driver exposes `createSearchIndex`, so
+the definition lives in version control next to the schema it indexes:
+
+```bash
+npm run atlas:index -w @corner/backend              # status
+npm run atlas:index -w @corner/backend -- --create  # build it
+```
+
+`corner-backend/src/scripts/create-vector-index.ts` holds the definition and
+polls until the index reports `queryable`. It stays a deliberate flagged action
+rather than something a deploy runs, because building an index over a large
+collection is expensive and a definition change means a full rebuild.
+
+The worker still checks at startup and warns loudly if the index is missing or
+still building — it warns rather than crashing, because parsing, narration,
+action items and summaries all work without it and only chat does not.
+
+## Vectors are stored as binData, not arrays
+
+`DocumentChunk.embedding` is BSON **binData subtype 9, float32**, written with
+`Binary.fromFloat32Array()`. Verified against the live cluster: Mongoose's
+`Buffer` schema path preserves subtype 9, which is what makes the value a vector
+to Atlas rather than an opaque blob. A plain Buffer with the default subtype 0
+would be silently unindexed — the query would return nothing and nothing would
+error.
+
+Storage impact and the reasoning are in `docs/adr/0002-vector-store.md`; the
+short version is 3.31x less disk than an array of doubles.
+
+The **query** vector is passed as a plain array. There is one per query, so its
+representation buys nothing.
 
 ## The embedding decision (resolves OQ-005)
 
