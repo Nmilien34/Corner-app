@@ -6,7 +6,6 @@ import {
 import { Router } from "express";
 
 import { loadUser, requireAuth } from "../middleware/auth.middleware";
-import { requireEntitlement } from "../middleware/require-entitlement.middleware";
 import { requireQuota } from "../middleware/quota.middleware";
 import { aiRateLimit } from "../middleware/rate-limit.middleware";
 import { validateBody, validateParams } from "../middleware/validate.middleware";
@@ -39,10 +38,22 @@ documentNarrationRouter.post(
 );
 
 narrationRouter.get("/:jobId", validateParams(jobIdParamSchema), (_req, res) => {
-  // TODO(phase-2-impl): load the job, then assertTierAccess(user,
-  // job.voiceTier) before returning anything. Status leaks less than a
-  // manifest, but it still confirms that a premium narration exists and is
-  // ready, so it is gated on the same tier.
+  // TODO(phase-2-impl): FIRST TWO STATEMENTS OF THIS HANDLER, in this order:
+  //
+  //   const job = await NarrationJobModel.findById(req.params.jobId);
+  //   if (!job) throw new NotFoundError();
+  //   assertTierAccess(req.currentUser, job.voiceTier);   // <-- before ANY read
+  //
+  // Only then return status and progress.
+  //
+  // Unlike chat and action-items, narration CANNOT enforce this in the
+  // middleware chain: the required tier is a property of the stored job, and
+  // the job is not loaded until the handler runs. The gate therefore lives in
+  // the handler body, which makes it the one gate a future edit can silently
+  // drop without a missing-middleware diff to notice.
+  //
+  // Status leaks less than a manifest, but it still confirms that a premium
+  // narration exists and is ready, so it gates on the same tier.
   sendNotImplemented(res, "Return narration status and progress (gated on job.voiceTier)");
 });
 
@@ -50,12 +61,28 @@ narrationRouter.get(
   "/:jobId/manifest",
   validateParams(jobIdParamSchema),
   (_req, res) => {
-    // TODO(phase-2-impl): load the job, assertTierAccess(user, job.voiceTier),
-    // and only then build the manifest.
+    // TODO(phase-2-impl): FIRST THREE STATEMENTS OF THIS HANDLER, in this order,
+    // before the manifest is built and before any URL is signed:
     //
-    // THIS IS THE PRIMARY BYPASS TARGET. The manifest carries presigned segment
-    // URLs — handing it to an unentitled caller gives away the audio itself,
-    // and no later check can take it back. A cache hit is still a gated read.
+    //   const job = await NarrationJobModel.findById(req.params.jobId);
+    //   if (!job) throw new NotFoundError();
+    //   assertTierAccess(req.currentUser, job.voiceTier);   // <-- FIRST
+    //
+    // Only then call narrationService.buildManifest(job.id).
+    //
+    // THIS LEAK IS IRREVERSIBLE. The manifest carries PRESIGNED SEGMENT URLS.
+    // Once one reaches an unentitled caller it is a bearer credential that
+    // works until it expires — it cannot be recalled, revoked per-caller, or
+    // undone by a later check, and it can be copied out of the response and
+    // shared. Every other gate in this API protects a read that can be refused
+    // again next time; this one protects a handout.
+    //
+    // Unlike chat, summary and action-items — which enforce in the middleware
+    // chain, where a missing requireEntitlement() is visible in the diff — the
+    // required tier here is a property of the stored job and is not known until
+    // the job is loaded. The gate can only live in the handler body, so it is
+    // the easiest one to lose in a refactor and the most expensive one to lose.
+    // Do not reorder it below the manifest build for any reason.
     sendNotImplemented(res, "Return chapters, segment URLs, durations and timing maps (gated on job.voiceTier)");
   },
 );
@@ -76,5 +103,3 @@ voicesRouter.get("/", requireAuth, loadUser, (_req, res) => {
   // later enforces.
   sendNotImplemented(res, "List available voices with their entitlement tier");
 });
-
-export const gatedNarrationExample = requireEntitlement;

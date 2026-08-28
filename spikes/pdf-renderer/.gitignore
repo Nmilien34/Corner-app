@@ -1,0 +1,6 @@
+# Generated test corpus — rebuild with `python3 make-test-pdf.py 350 assets/large-350p.pdf`
+assets/*.pdf
+node_modules/
+.expo/
+ios/
+android/
