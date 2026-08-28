@@ -5,18 +5,19 @@
   "description": "Corner API",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "prebuild": "npm --prefix ../shared run build",
+    "atlas:index": "tsx src/scripts/create-vector-index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
-    "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "start:worker": "node dist/jobs/worker.js",
-    "dev:worker": "tsx watch src/jobs/worker.ts",
     "check:db": "tsx src/scripts/check-db.ts",
     "check:storage": "tsx src/scripts/check-storage.ts",
-    "atlas:index": "tsx src/scripts/create-vector-index.ts"
+    "credits": "tsx src/scripts/credit-burn.ts",
+    "dev": "tsx watch src/index.ts",
+    "dev:worker": "tsx watch src/jobs/worker.ts",
+    "lint": "eslint .",
+    "prebuild": "npm --prefix ../shared run build",
+    "start": "node dist/index.js",
+    "start:worker": "node dist/jobs/worker.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.758.0",

@@ -180,3 +180,77 @@ own data structure on disk."*
 
 It is the lever for a *memory* ceiling, not a disk one. See
 `docs/adr/0002-vector-store.md` for when to pull it.
+
+## Narration — the dominant AI cost
+
+Verified pricing, 2026-08-28: OpenAI `tts-1` at **$15.00 / 1M characters**.
+Provider decision and reasoning in `docs/adr/0003-tts-provider.md`.
+
+### Per document
+
+| Mode | Characters | TTS | Script (LLM) | Total |
+|---|---|---|---|---|
+| **Podcast episode** (~28 min) | 25,000 | $0.375 | ~$0.01 | **~$0.385** |
+| **Verbatim, full book** (350pp) | 1,325,480 | $19.88 | — | **$19.88** |
+
+**53x.** Verbatim reads every character of the source; podcast generates a
+short adaptation from it. The script's own LLM cost is noise — a whole book
+through `gpt-5-nano` is under a cent — so the character count going into TTS is
+essentially the entire cost of narration.
+
+For scale: everything else Corner spends per document is rounding error against
+this. Embedding a 350-page book is **$0.004**. One verbatim narration costs
+about as much as embedding **5,000 books**.
+
+### Per listening hour
+
+At ~150 wpm and ~5.5 characters per word, one hour of speech ≈ 49,500
+characters.
+
+| | Cost | Paid |
+|---|---|---|
+| TTS generation | **$0.743** | once, per {content, chapter, voice, speed} |
+| S3 egress | **$0.0026** | every listen |
+
+Generation is **286x** delivery. Two consequences worth stating plainly:
+
+**Dedupe of generated audio is worth far more than the storage it saves.** The
+second listener of a popular document costs $0.0026 instead of $0.743. That is
+the same content-level sharing the schema already provides via `NarrationJob`
+keyed on content rather than on a user's `Document` — its value is 286x larger
+than the disk it avoids.
+
+**The crossover is ~286 listens.** Below that, generation dominates and the
+egress analysis earlier in this file is aimed at the smaller number. Above it,
+egress takes over and the R2 comparison becomes the live question again.
+
+### Why this drives lazy, chapter-scoped generation
+
+At $19.88 a verbatim book, generating eagerly for a whole document means buying
+audio for chapters nobody reaches. Listeners abandon books; eager generation has
+already paid for the whole thing.
+
+Chapter-scoped generation, produced just ahead of the listener, makes spend
+track consumption — an abandoned book costs a chapter. That is why
+`NarrationJob` is being rescoped from document to chapter (ADR 0003, decision 1)
+rather than left as it currently stands.
+
+### Runway
+
+Roughly $5,000 in OpenAI credits, expiry and audio coverage **unverified** —
+see `docs/OPEN-QUESTIONS.md` OQ-011.
+
+| If spent entirely on | Volume |
+|---|---|
+| Verbatim full books | ~251 |
+| Podcast episodes | ~13,333 |
+| Embedding 350-page books | ~1,250,000 |
+
+Track actual burn with:
+
+```bash
+npm run credits -w @corner/backend
+```
+
+It reports spend by feature over the last 30 days and projects runway, so TTS
+overtaking everything else is visible before it happens rather than after.

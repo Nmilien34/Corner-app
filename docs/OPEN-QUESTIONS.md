@@ -303,6 +303,55 @@ Option A is the one that preserves the guarantee by construction rather than by 
 
 ---
 
+## OQ-010 — Should verbatim narration be on-device and podcast cloud-only?
+
+**Status:** OPEN — logged with the economics attached so the decision is made on numbers.
+**Needed by:** before narration ships. Not blocking the pipeline.
+
+### The shape
+
+Verbatim read-aloud costs **$19.88 per 350-page book** through OpenAI `tts-1`. Podcast mode costs **$0.375 per episode**. Same product surface, **53x** apart.
+
+Verbatim is also the commodity half — every competitor has read-aloud — while podcast is the differentiated half. So Corner is potentially paying 53x more for the feature that wins nothing.
+
+The obvious structure: **on-device TTS for verbatim** (free, uses the platform voice, quality is noticeably worse) and **cloud TTS for podcast** (paid, good voices, the thing people stay for).
+
+### Arguments for
+
+- Removes the single largest per-document cost from the free tier entirely.
+- On-device TTS is genuinely adequate for follow-along reading, where the user is looking at the text and the voice is a pacing aid rather than the experience.
+- Aligns spend with differentiation: Corner pays for the thing only Corner does.
+
+### Arguments against
+
+- **Two audio paths to build and maintain**, with different capabilities. Timing data is the problem: `AudioSegment.timingMap` drives sentence highlighting, and platform TTS engines expose word-boundary callbacks in different shapes on iOS and Android — or not at all. The follow-along highlight is precisely what ADR 0001 established as the hard part.
+- **No offline download for on-device verbatim** in the same sense — there is no artifact to cache, so "download for offline" means something different per mode, which is hard to explain in a UI.
+- Quality gap may read as "the free tier is broken" rather than "the free tier is free".
+
+### What must be measured before deciding
+
+- Whether iOS `AVSpeechSynthesizer` and Android `TextToSpeech` both expose usable word-boundary callbacks, and whether their offsets can be reconciled with `DocumentChunk.anchor`'s character space. If they cannot, on-device verbatim loses follow-along highlighting and the comparison changes completely.
+- Actual verbatim-vs-podcast usage split. If verbatim is rarely used, this optimizes nothing.
+
+---
+
+## OQ-011 — Do the OpenAI credits actually cover TTS, and when do they expire?
+
+**Status:** OPEN — **verification is Nick's, not the codebase's.**
+**Needed by:** before narration spend starts.
+
+Corner's narration economics assume roughly **$5,000 in OpenAI credits valid until approximately next year**, covering LLM, embeddings and TTS on one key.
+
+**Two parts of that are assumed, not verified, and both would change the plan:**
+
+1. **The exact expiry date.** "About next year" sets the runway. If the credits expire sooner than the point at which narration reaches meaningful volume, they subsidise nothing and the real cost arrives at launch.
+
+2. **Whether the grant covers audio endpoints at all.** Some OpenAI credit grants are scoped to specific models or explicitly exclude audio. If TTS is excluded, the entire premise of ADR 0003 — one vendor, one key, credits absorbing narration — collapses, and narration is billed at full rate from the first request.
+
+Check both in the OpenAI dashboard under billing/credits: the grant's expiry, and whether its scope names models or endpoint families. This is recorded here rather than assumed because ADR 0003 and the runway figures in `docs/costs.md` both rest on it.
+
+---
+
 ## Backlog not yet migrated
 
 `CONVENTIONS.md` §"Conventions absent from both references" carries a list of
