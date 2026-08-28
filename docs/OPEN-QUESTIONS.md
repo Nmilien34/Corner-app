@@ -270,6 +270,39 @@ When requesting it, ask for: the Community tier figure and its eligibility limit
 
 ---
 
+## OQ-009 — How do OCR'd pages get character offsets?
+
+**Status:** OPEN — logged deliberately before OCR exists, because the answer constrains how OCR is built rather than the other way round.
+**Needed by:** before any OCR work starts.
+
+### The problem
+
+Corner's anchor design rests on one guarantee: the server's normalized text and the client's extracted text are **character-identical**, because both run the same pinned pdf.js. That is what `docs/PDFJS-VERSION.md` protects and what the corpus gate verifies.
+
+**OCR text does not come from pdf.js.** It comes from an OCR engine looking at a rasterized page. So for a scanned document there is no shared extractor, and the guarantee simply does not apply — the client's pdf.js sees a page of images and returns approximately nothing, while the server has a full transcript. Every offset on such a page is unresolvable on the client.
+
+This is not a small subset. Scanned contracts and photographed medical records are exactly the documents Corner exists for.
+
+### Options, none chosen
+
+**A. Write OCR text back into the PDF as an invisible text layer.** The OCR pass produces a new PDF with a standard invisible text layer over the page images, stored as a derived artifact. Both sides then extract from *that* file with pdf.js, and the guarantee is preserved unchanged — no new coordinate space, no client changes, and the corpus gate covers OCR'd documents for free. Cost: a second stored blob per scanned document, and the OCR engine must emit positioned text rather than a plain transcript. This is the option that preserves the existing architecture rather than extending it.
+
+**B. Server-supplied rectangles.** The server stores OCR word boxes and ships them with each span, so the client draws from geometry rather than resolving offsets itself. Introduces a second highlighting path that only runs on scanned pages — meaning the path used least often is the one least exercised, which is where bugs live.
+
+**C. A separate coordinate space for OCR'd pages.** `DocumentContent` gains a per-page flag and OCR pages resolve differently. Rejected on sight in this note as the worst option: it splits the anchor contract in two, and every consumer — narration, action items, chat — has to handle both.
+
+**D. Do not OCR.** Scanned documents get no narration, no chat, no action items. Honest, cheap, and probably wrong for the product.
+
+### What must be decided alongside it
+
+- **Mixed documents.** A born-digital PDF with three scanned pages inserted is common. Whatever is chosen must work per-page, not per-document.
+- **Reparse interaction.** OCR changes the text, so it changes every offset — meaning it must bump `parseVersion` and invalidate chunks, cues and citations, exactly like a reparse. `DocumentContent.ocrApplied` exists for this but nothing reads it yet.
+- **Cost attribution.** OCR is a per-page AI spend and needs a `UsageEvent` feature; `ocr` is already in `USAGE_FEATURES`.
+
+Option A is the one that preserves the guarantee by construction rather than by maintenance, and on that basis is the one to beat.
+
+---
+
 ## Backlog not yet migrated
 
 `CONVENTIONS.md` §"Conventions absent from both references" carries a list of

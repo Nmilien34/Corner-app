@@ -233,6 +233,85 @@ window.__spike = {
   },
 };
 
+/**
+ * THE GATE: compare the server's parse against the client's.
+ *
+ * Loads server-parse.json (written by corner-backend's parse-corpus script) and
+ * checks, in increasing order of strictness:
+ *   1. page count and total character count
+ *   2. pageOffsets, element by element
+ *   3. sha256 of the ENTIRE normalized text — one differing character fails it
+ *   4. every sample range resolves on screen to the text the server says lives
+ *      at those offsets
+ *
+ * Check 3 is the one that matters. 1 and 2 can pass while the text differs
+ * internally in compensating ways; the hash cannot.
+ */
+window.__verifyAgainstServer = async () => {
+  const S = window.__spike;
+  const server = await fetch("/server-parse.json").then((r) => r.json());
+  const out = { checks: {}, failures: [] };
+
+  out.checks.pdfjsVersion = { server: server.pdfjsVersion, client: pdfjsLib.version,
+    match: server.pdfjsVersion === pdfjsLib.version };
+  out.checks.pageCount = { server: server.pageCount, client: pages.length,
+    match: server.pageCount === pages.length };
+  out.checks.totalChars = { server: server.totalChars, client: docText.length,
+    match: server.totalChars === docText.length };
+
+  // pageOffsets, element by element — reports the FIRST divergence, which is
+  // where any drift begins.
+  let firstBadPage = null;
+  for (let i = 0; i < Math.max(server.pageOffsets.length, pages.length); i++) {
+    const a = server.pageOffsets[i], b = pages[i]?.startOffset;
+    if (a !== b) { firstBadPage = { page: i + 1, server: a, client: b }; break; }
+  }
+  out.checks.pageOffsets = { match: firstBadPage === null, firstDivergence: firstBadPage };
+
+  // Full-text hash.
+  const bytes = new TextEncoder().encode(docText);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const clientSha = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  out.checks.textSha256 = { server: server.textSha256, client: clientSha,
+    match: server.textSha256 === clientSha };
+
+  // Resolve each server-issued range on screen.
+  let resolved = 0, textMatches = 0;
+  for (const sample of server.samples) {
+    S.clearHighlights();
+    let r = await S.highlight(sample.probeStart, sample.probeEnd, { scroll: true, quiet: true });
+    if (!r) { await new Promise((x) => requestAnimationFrame(x));
+      r = await S.highlight(sample.probeStart, sample.probeEnd, { scroll: true, quiet: true }); }
+    if (!r) { out.failures.push({ ordinal: sample.ordinal, why: "no rects" }); continue; }
+    resolved++;
+
+    // Compare VISIBLE characters, not structural ones.
+    //
+    // The server's normalized text contains newlines contributed by hasEOL
+    // markers. Those are real characters that occupy offsets, but they have no
+    // glyphs — pdf.js renders no span for them — so the client cannot draw
+    // them and correctly highlights only the visible characters in the range.
+    //
+    // Comparing raw strings therefore fails on every range containing a line
+    // break, which is almost all of them, while proving nothing. The text
+    // itself is compared exactly, and far more strictly, by the sha256 of the
+    // whole document above.
+    const expectedVisible = sample.probeText.replace(/\n/g, "");
+    if (r.drawn === expectedVisible) textMatches++;
+    else out.failures.push({ ordinal: sample.ordinal, page: r.page,
+      serverVisible: expectedVisible, clientDrew: r.drawn,
+      serverRaw: JSON.stringify(sample.probeText) });
+  }
+
+  out.checks.sampleResolution = { total: server.samples.length, resolved,
+    textMatchesServer: textMatches };
+  out.verdict =
+    out.checks.pageCount.match && out.checks.totalChars.match &&
+    out.checks.pageOffsets.match && out.checks.textSha256.match &&
+    textMatches === server.samples.length ? "PASS" : "FAIL";
+  return out;
+};
+
 document.getElementById("go").onclick = async () => {
   clearHighlights();
   const a = +document.getElementById("from").value, b = +document.getElementById("to").value;

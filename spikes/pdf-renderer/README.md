@@ -166,6 +166,59 @@ the page, while x/y anchored perfectly and the text was correct throughout. With
   at parse time, not a client cost — but it sets expectations for the parser.
 - Corpus: 350 pages, 219 KB, real text operators.
 
+## THE GATE — server/client cross-verification: PASS
+
+Ran 2026-08-28. `corner-backend` parsed the 350-page corpus with pdfjs-dist
+4.10.38; the harness independently parsed the same file in the browser and
+compared.
+
+| Check | Server | Client | |
+|---|---|---|---|
+| pdfjs-dist version | 4.10.38 | 4.10.38 | match |
+| page count | 350 | 350 | match |
+| total characters | 1,325,480 | 1,325,480 | match |
+| `pageOffsets` | 350 values | 350 values | **no divergence at any index** |
+| **sha256 of entire normalized text** | `0855b2d9…3b0` | `0855b2d9…3b0` | **identical** |
+| sample ranges resolved on screen | 120 | 120 | **120/120 matched** |
+
+The hash is the check that matters. Counts and offsets can agree while the text
+differs in compensating ways; a sha256 over 1.33M characters cannot. **The
+identical-extraction guarantee holds.**
+
+### The first run reported FAIL, and the comparison was wrong
+
+117 of 120 samples "failed" like this:
+
+```
+server: "1\nPage 1 of 350\nSection 1.1 paragraph 1 - the quic"
+client: "1Page 1 of 350Section 1.1 paragraph 1 - the quick "
+```
+
+Newlines. The server's normalized text contains `\n` characters contributed by
+`hasEOL` markers — real characters that occupy offsets — but they have **no
+glyphs**, so pdf.js renders no span for them and the client cannot draw them.
+The client was highlighting the visible characters correctly; the assertion was
+comparing structural text against visible text.
+
+Worth recording because the failure looked exactly like the divergence the gate
+exists to catch, and the text was in fact byte-identical the whole time. The
+comparison now strips newlines before comparing what was *drawn*; the text
+itself is still compared exactly, and far more strictly, by the hash.
+
+### Reproducing
+
+```bash
+npx tsx corner-backend/src/scripts/parse-corpus.ts   # writes harness/server-parse.json
+# then in the harness page:
+await window.__verifyAgainstServer()
+```
+
+### Limitation
+
+The synthetic corpus has **no `/Outlines`**, so `getOutline()` returns null and
+the outline path is unverified. `headingPath` and `outlineNodeId` are exercised
+by unit tests but not by this gate. A real book PDF is needed to close that.
+
 ## Running it
 
 ```bash

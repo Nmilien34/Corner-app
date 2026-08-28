@@ -137,3 +137,26 @@ export type UsageUnit = (typeof USAGE_UNITS)[number];
 export const EMBEDDING_PROVIDER = "openai" as const;
 export const EMBEDDING_MODEL = "text-embedding-3-small" as const;
 export const EMBEDDING_DIMENSIONS = 1536 as const;
+
+// ---- Text normalization contract -------------------------------------------
+
+/**
+ * Separator inserted between pages in the normalized full text.
+ *
+ * Part of the extraction contract, not a formatting choice. The server writes
+ * it and the client's page indices are computed on the assumption it is
+ * exactly this. Changing it shifts every character offset after page 1.
+ */
+export const PAGE_SEPARATOR = "\n\n";
+
+/**
+ * Version of the normalization RULES, independent of the pdfjs-dist version.
+ *
+ * Bump when the rules themselves change (a different separator, added
+ * whitespace handling, hyphenation joining). A pdfjs-dist upgrade that changes
+ * output does NOT bump this — that is caught by the version pin instead.
+ *
+ * Stored on DocumentContent so a document parsed under older rules is
+ * identifiable without re-deriving its text.
+ */
+export const NORMALIZATION_VERSION = 1;

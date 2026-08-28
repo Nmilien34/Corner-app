@@ -14,10 +14,14 @@
     "test": "vitest run",
     "start:worker": "node dist/jobs/worker.js",
     "dev:worker": "tsx watch src/jobs/worker.ts",
-    "check:db": "tsx src/scripts/check-db.ts"
+    "check:db": "tsx src/scripts/check-db.ts",
+    "check:storage": "tsx src/scripts/check-storage.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.758.0",
+    "@aws-sdk/s3-request-presigner": "^3.758.0",
     "@corner/shared": "0.1.0",
+    "@napi-rs/canvas": "^0.1.65",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.1",
     "@types/jsonwebtoken": "^9.0.7",
@@ -28,7 +32,9 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.24.4",
+    "pdfjs-dist": "4.10.38",
     "pino": "^9.6.0",
+    "sharp": "0.35.3",
     "zod": "^3.25.67"
   },
   "devDependencies": {

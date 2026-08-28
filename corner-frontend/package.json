@@ -9,7 +9,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@corner/shared": "0.1.0"
+    "@corner/shared": "0.1.0",
+    "pdfjs-dist": "4.10.38"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",

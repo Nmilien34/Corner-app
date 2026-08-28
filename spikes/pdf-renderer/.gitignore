@@ -4,3 +4,5 @@ node_modules/
 .expo/
 ios/
 android/
+harness/node_modules/
+harness/server-parse.json
