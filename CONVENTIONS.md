@@ -329,7 +329,9 @@ Concrete examples: `$PEPTA/pepta-backend/src/models/user.model.ts`, `model-utils
 ### Authentication
 
 - Both references issue JWTs with `jsonwebtoken`, algorithm HS256, a `sub` user ID, and configurable expiry (`30d` default).
-- Pepta requires a 64-character secret; Leanient requires 32. Adopt Pepta's stronger minimum.
+- Pepta requires a 64-character secret; Leanient requires 32. Corner enforces the same strength as Pepta but measures it correctly: **32 bytes of key material after decoding**, plus a floor of 8 distinct characters.
+
+  A character count answers the wrong question. Pepta's 64 characters was really "32 bytes of hex" wearing a character count, so the byte rule is identical in strength for hex secrets. It differs in two places, both improvements: `openssl rand -base64 32` carries a full 32 bytes in 44 characters and was wrongly rejected by the old rule, and 64 repeated `a`s are valid hex that decode to a real 32 bytes — length alone accepts them, which is why the distinct-character floor exists. Any generated secret clears both bounds; only typed ones fail.
 - `requireAuth` reads a bearer token, verifies it, and sets `req.user = { id: payload.sub }`.
 - The current middleware does not load the full Mongoose user document. Services query it when needed.
 - The references authenticate with Google/Apple and have a review-only demo account. Corner's anonymous device-ID-first account is absent.

@@ -14,6 +14,41 @@ import { z } from "zod";
 dotenv.config();
 dotenv.config({ path: path.resolve(process.cwd(), "../.env") });
 
+/** Minimum key material for HS256. 32 bytes is the hash's own output width. */
+export const JWT_SECRET_MIN_BYTES = 32;
+
+/**
+ * Floor on distinct characters, because byte length alone cannot see entropy.
+ *
+ * "aaaa…a" (64 of them) is valid hex and decodes to a genuine 32 bytes, so a
+ * pure length check passes it while the key has essentially no entropy. Any
+ * randomly generated secret clears this comfortably — 64 random hex characters
+ * use ~16 distinct symbols, 44 random base64 characters use ~30 — so the floor
+ * only catches secrets that were typed rather than generated.
+ */
+export const JWT_SECRET_MIN_DISTINCT_CHARS = 8;
+
+/**
+ * How many bytes of key material a secret actually carries.
+ *
+ * Hex and base64 are checked before falling back to raw UTF-8, because both
+ * encodings inflate the character count relative to the entropy they hold —
+ * 64 hex characters and 44 base64 characters are both exactly 32 bytes.
+ * Hex is tested first: its alphabet is a subset of base64's, so the order
+ * matters or every hex secret would be measured as base64 and overcounted.
+ */
+export function secretByteLength(value: string): number {
+  if (value.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(value)) {
+    return value.length / 2;
+  }
+
+  if (/^[A-Za-z0-9+/_-]+={0,2}$/.test(value) && value.length % 4 === 0) {
+    return Buffer.from(value, "base64").length;
+  }
+
+  return Buffer.byteLength(value, "utf8");
+}
+
 const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -39,10 +74,31 @@ const envSchema = z.object({
   // serves production traffic. Corner has no load that needs them.
   MONGODB_MAX_POOL_SIZE: z.coerce.number().int().positive().default(10),
 
-  // 64 characters minimum, adopting Pepta's stronger bound over Leanient's 32.
+  // 32 BYTES minimum, measured after decoding — not a character count.
+  //
+  // A character count answers the wrong question. `openssl rand -base64 32` is
+  // 44 characters carrying a full 256 bits, and a 64-character rule rejects it
+  // while happily accepting 64 repeated 'a's. Pepta's 64-character bound was
+  // really "32 bytes of hex" wearing a character count, so measuring bytes
+  // keeps the same strength and stops punishing the stronger encoding.
   JWT_SECRET: z
     .string()
-    .min(64, "JWT_SECRET must be at least 64 characters"),
+    .refine(
+      (value) => secretByteLength(value) >= JWT_SECRET_MIN_BYTES,
+      (value) => ({
+        message:
+          `JWT_SECRET must carry at least ${JWT_SECRET_MIN_BYTES} bytes of key material ` +
+          `(got ${secretByteLength(value)}). Generate one with: openssl rand -hex 32`,
+      }),
+    )
+    .refine(
+      (value) => new Set(value).size >= JWT_SECRET_MIN_DISTINCT_CHARS,
+      (value) => ({
+        message:
+          `JWT_SECRET has only ${new Set(value).size} distinct characters, which means it ` +
+          "was typed rather than generated. Use: openssl rand -hex 32",
+      }),
+    ),
   JWT_EXPIRES_IN: z.string().default("30d"),
 
   // Storage and AI providers are declared but not yet read by any service.
@@ -104,11 +160,10 @@ if (!parsed.success) {
     "            `sync: false` in render.yaml, which means Render never supplies",
     "            them — you set them once and both services inherit the group.",
     "",
-    "  JWT_SECRET must be at least 64 characters. Generate one with:",
-    "      openssl rand -hex 32",
-    "  (32 bytes of hex is exactly 64 characters. Do NOT use Render's dashboard",
-    "  'Generate' button here — its value may be shorter than 64 and will fail",
-    "  this check with a confusing message.)",
+    `  JWT_SECRET must carry at least ${JWT_SECRET_MIN_BYTES} bytes of key material.`,
+    "  Generate one with:  openssl rand -hex 32",
+    "  (hex and base64 secrets are measured after decoding, so both",
+    "  `openssl rand -hex 32` and `openssl rand -base64 32` are accepted.)",
   );
 
   throw new Error(lines.join("\n"));
