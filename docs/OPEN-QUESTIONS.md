@@ -257,6 +257,19 @@ Related: this only bites where an artifact is content-scoped and shared — narr
 
 ---
 
+## OQ-008 — ComPDFKit licence quote (priced fallback for the renderer)
+
+**Status:** OPEN — action sits with the product owner, not the codebase.
+**Needed by:** only if the pdf.js memory ceiling proves fatal. Not on the critical path.
+
+`docs/adr/0001-pdf-renderer.md` names ComPDFKit as the priced fallback. It has **no public pricing** — every tier is quote-only, and the referenced "Community License" for start-ups carries no published figure (verified at `compdf.com/pricing`, 2026-08-28).
+
+A quote has not been requested, because doing so means submitting company and contact details plus app volume and deployment model to a vendor's sales team — information only the product owner can supply, and an outward-facing action worth taking deliberately.
+
+When requesting it, ask for: the Community tier figure and its eligibility limits; perpetual vs subscription; whether the licence is per-bundle-ID (Corner ships `ai.boltzman.corner` on two platforms); and whether the React Native binding costs more than the native SDKs. A 30-day watermark-free production trial key is available and would let the fallback be measured on the same corpus before any money is committed.
+
+---
+
 ## Backlog not yet migrated
 
 `CONVENTIONS.md` §"Conventions absent from both references" carries a list of
