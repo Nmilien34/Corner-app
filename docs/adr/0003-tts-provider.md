@@ -1,6 +1,6 @@
 # ADR 0003 — TTS provider: OpenAI
 
-**Status:** Accepted (2026-08-28).
+**Status:** Accepted (2026-08-28). **The provider half is superseded by ADR 0004**, which re-examines it on timestamp capability — OpenAI TTS returns no alignment data of any kind, which this ADR did not consider.
 **Decision:** **OpenAI `tts-1`** for narration. ElevenLabs is recorded as a
 possible premium tier only, not a general-purpose option.
 
