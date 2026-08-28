@@ -40,7 +40,7 @@ Phase 0 reconnaissance for Corner PDF Editor & PDF Reader. No Corner scaffold co
 | Disagreement | Result against authoritative Pepta `a8bb0f7` |
 |---|---|
 | Direct root workspaces vs nested app directory | Unchanged: Pepta still declares `shared`, `pepta-backend`, and `pepta-frontend` as root npm workspaces. |
-| Marketing/design tracking | Conclusion unchanged but evidence clarified: Pepta ignores root `marketing/`, has no root `design/`, and tracks a separately named frontend `design-lab`; Corner's requirement to ignore both root folders remains an explicit proposed override. |
+| Marketing/design tracking | Conclusion **corrected at the Phase 0 gate**: Pepta ignores root `marketing/`, has no root `design/`, and tracks a separately named frontend `design-lab`. Corner tracks `design/` and ignores `marketing/`; the earlier "ignore both" reading was wrong. |
 | Navigation and onboarding composition | Unchanged: Pepta still provides the stronger native-stack plus bottom-tabs precedent. |
 | Frontend import alias | Unchanged: Pepta still uses relative app imports plus the shared workspace; Leanient's `@/` alias is not adopted. |
 | Axios vs typed `fetch` | Conclusion unchanged, evidence strengthened: Pepta still owns the selected typed-fetch/GET-only-retry pattern and now separates accepted-write response parse failures from retryable transport failures. |
@@ -98,7 +98,11 @@ The root `package.json` in each repo declares npm workspaces for `shared`, the b
 - Pepta ignores root `marketing/` and has an ignored on-disk marketing directory. It has no root `design/` directory or root `design/` ignore rule; current design work lives under the separately named, tracked `pepta-frontend/design-lab/` tree.
 - Therefore the expectation that both folders are untracked in both references is not borne out by the repositories.
 
-**Corner decision:** `[NEW — proposed]` follow Corner's explicit privacy/housekeeping requirement and ignore both `marketing/` and `design/`, while creating them on disk with ignored README files. This is intentionally not a mirror of Leanient.
+**Corner decision:** `[NEW — proposed]` **track `design/`, ignore `marketing/`.** Create both on disk: `design/README.md` is tracked, `marketing/README.md` is ignored along with the rest of that directory.
+
+This deliberately departs from the original brief, which specified that both folders be untracked. The split is the better rule because the two directories hold different kinds of content: design output is small, diffable, and worth having history on, so losing its provenance costs more than it saves; marketing is heavy binaries — renders, video, store assets — which bloat the object store permanently and are recoverable from their sources. Ignoring both would have thrown away the half that benefits from version control in order to solve a problem only the other half has.
+
+The result is closest to Leanient, which tracks `design/`, rather than a mirror of either reference: Leanient also tracks `marketing/`, and Pepta has no root `design/` at all.
 
 ### Environment files
 
@@ -114,7 +118,7 @@ Neither repo uses `.env.development` or `.env.production`.
 
 ### Gitignore baseline
 
-Both ignore `.env*` except `.env.example`, `node_modules/`, `dist/`, `.expo/`, and coverage output. Additional useful patterns include build output, native build artifacts, logs, `.DS_Store`, editor folders, and worktrees. Corner should combine the superset, then add its explicit ignored `marketing/` and `design/` directories.
+Both ignore `.env*` except `.env.example`, `node_modules/`, `dist/`, `.expo/`, and coverage output. Additional useful patterns include build output, native build artifacts, logs, `.DS_Store`, editor folders, and worktrees. Corner should combine the superset, then add a single explicit `marketing/` ignore rule. `design/` gets no ignore rule at all — it is tracked. Note the consequence for the two READMEs: `design/README.md` is committed normally, while `marketing/README.md` falls under the directory ignore and therefore exists on disk for humans only. That is intended; do not add a `!marketing/README.md` negation to force it into the index.
 
 ## Frontend conventions
 
@@ -223,9 +227,27 @@ Current Pepta commit `e22a330` added PostHog and `5310aef` completed its replay-
 - `src/services/funnelEvents.ts` is the single fan-out point. It sends the same lower `snake_case` event name and string properties to AppsFlyer and PostHog; tracking call sites do not know about either provider.
 - Analytics is fire-and-forget. PostHog initialization, capture, identify, and reset swallow provider failures, and authentication side effects have a bounded budget so analytics cannot fail sign-in.
 - PostHog identity is the backend user ID with minimal non-clinical properties; logout/account deletion resets it. Events avoid PII, clinical values, and raw user input, with per-install or per-session de-duplication where appropriate.
+- Two tests enforce the above rather than leaving it to reviewer discipline. Both are **required carry-overs**, not optional precedent:
+  - `$PEPTA/pepta-frontend/src/context/AuthContext.posthogIdentity.test.tsx` — the person-property **allowlist**. It asserts exact set equality on the identify payload's keys (`Object.keys(props).sort()` equals `["platform"]`), then separately asserts the serialized payload contains neither the user's email nor display name. The mechanism matters: it is an allowlist, not a denylist, so a future edit that adds a person property fails this assertion and has to come back through it deliberately. A denylist of banned keys would silently pass anything nobody thought to ban. It also covers identify-on-sign-in and reset-on-sign-out.
+  - `$PEPTA/pepta-frontend/src/services/posthogFanOut.test.ts` — **two-way parity** plus blast-radius containment. It asserts the same event name and identical properties reach both destinations and that names are not renamed between them, and that a throwing or never-initialised PostHog leaves the AppsFlyer send intact and does not consume the once-per-install token.
+- The allowlist carries more weight in Corner than in Pepta. Pepta's risk is clinical values; Corner's documents are contracts and medical records, so document titles, filenames, extracted text, action-item content, and chat messages are all user content that must never become an event property or person property. Corner's allowlist test must cover document and action-item event payloads, not just identity.
 - Session replay is off unless `EXPO_PUBLIC_POSTHOG_SESSION_REPLAY === "true"`; its sample rate is otherwise zero. When enabled, all text inputs, images, and sandbox views are globally masked, health-value surfaces opt into `MaskedHealthValue`/`ph-no-capture`, and log capture is disabled. Build 46 explicitly shipped replay off.
 
-**Corner decision:** `[ADOPTED]` use Pepta's provider-neutral dual fan-out: AppsFlyer for attribution and PostHog for product analytics/replay, with identical `snake_case` events, minimal identity, non-blocking calls, and replay disabled by default behind global plus health-surface masking.
+**Corner decision:** `[ADOPTED]` use Pepta's provider-neutral dual fan-out: AppsFlyer for attribution and PostHog for product analytics/replay, with identical `snake_case` events, minimal identity, non-blocking calls, and replay disabled by default behind global plus health-surface masking. Port both tests named above as a required part of this adoption, extending the allowlist to Corner's document, action-item, and chat payloads.
+
+### App Tracking Transparency
+
+Corner inherits AppsFlyer for attribution, so iOS ATT is a required convention with a shipped precedent, not a nice-to-have. Pepta's committed implementation at `a8bb0f7` is the one to follow: `$PEPTA/pepta-frontend/src/services/attPrompt.ts` and `src/services/attPrompt.test.ts`, with `expo-tracking-transparency` `~6.0.8` and a single `attLaunchPrompt.start()` call from the app root (`App.tsx:44`).
+
+This convention was written against a real rejection. Pepta's own source header records it: **Guideline 2.1, 2026-07-20, version 1.0.1 (13)**. The only ATT request lived inside AppsFlyer initialization, which runs after sign-in — and auth sits at the *end* of the onboarding funnel, so a reviewer on a fresh install never authenticated and the prompt never appeared. The two rules that follow are the fix:
+
+- **Fire at launch, independent of auth.** The request must not be reachable only through a code path that requires a signed-in user. Corner's anonymous device-ID-first account does not make this safe by itself — the prompt still belongs at the root, not behind onboarding.
+- **Wait for foreground-active, then retry.** iOS silently drops the ATT dialog when it is requested while the app is still launching, resolving `undetermined` with no UI and no error. Pepta subscribes to `AppState`, waits for `active`, allows a short settle delay (400 ms) so the first screen paints under the dialog, then requests. An `undetermined` result *back from a request* means iOS suppressed it, so the subscription stays open and retries on the next foreground; any determined status unsubscribes. Permission plumbing failures leave the subscription in place rather than giving up.
+- Supporting details worth preserving: `start()` is idempotent and no-ops off iOS; a single in-flight guard prevents overlapping attempts; `isAvailable()` is checked before either call and an unavailable module ends cleanly; AppsFlyer's own pre-init request stays as a harmless no-op safety net, since iOS never re-prompts once status is determined. The class takes its platform, app-state, permission, and delay collaborators as injectable options, which is what makes `attPrompt.test.ts` able to drive the suppression-and-retry path without a simulator.
+
+Leanient has an uncommitted `leanient-frontend/src/services/attPrompt.service.ts` in its working tree. It is **not** the precedent to copy — it is untracked work that this audit deliberately does not treat as convention, and its `.service` suffix also conflicts with the frontend naming used here. Follow Pepta's committed `attPrompt.ts`.
+
+**Corner decision:** `[ADOPTED]` port Pepta's `AttLaunchPrompt` shape verbatim — launch-time, auth-independent, foreground-gated, retry-on-suppression, idempotent, iOS-only — together with its test. Add `expo-tracking-transparency` and the `NSUserTrackingUsageDescription` string at scaffold time rather than at submission time.
 
 ### Expo config, identifiers, and EAS
 
@@ -414,5 +436,7 @@ If this document is approved, later phases will follow this baseline:
 5. Express 5 app factory/process split, thin routes, services, Mongoose models, shared validation, Pino, and standard envelopes.
 6. Mongo-backed background jobs with a separate Render worker as a clearly marked new Corner pattern.
 7. `ai.boltzman.corner` identifiers.
-8. Both `marketing/` and `design/` ignored, as explicitly required for Corner despite the reference mismatch.
+8. `design/` tracked (with a tracked `README.md`); `marketing/` ignored (with an ignored `README.md`). A deliberate departure from the brief's "both untracked" — small diffable design output earns its history, heavy marketing binaries do not.
 9. Analytics uses Pepta's dual fan-out: AppsFlyer for attribution and PostHog for product analytics/session replay, with replay disabled by default and health-data masking enforced.
+10. Pepta's PostHog allowlist test and fan-out parity test are ported as required carry-overs, with the allowlist extended to Corner's document, action-item, and chat payloads.
+11. Pepta's committed launch-time ATT prompt is ported with its test — fired at the app root independent of auth, gated on foreground-active, retried on iOS suppression.
