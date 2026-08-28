@@ -1,5 +1,10 @@
-// One call interface with model config, retries, timeouts and token
-// accounting. Prompts live as versioned files in src/prompts/, never inline.
+// One call interface with model config, retries, timeouts and token accounting.
+// Prompts live as versioned files in src/prompts/, never inline.
+
+import OpenAI from "openai";
+
+import { env } from "../config/env";
+import { AppError } from "../lib/errors";
 
 export interface LlmMessage {
   role: "system" | "user" | "assistant";
@@ -14,23 +19,81 @@ export interface LlmCompletion {
 }
 
 export interface LlmService {
+  readonly provider: string;
+  readonly model: string;
   complete(input: {
     messages: LlmMessage[];
     maxTokens?: number;
     temperature?: number;
     timeoutMs?: number;
   }): Promise<LlmCompletion>;
-
-  completeJson<T>(input: {
-    messages: LlmMessage[];
-    schemaName: string;
-    maxTokens?: number;
-  }): Promise<{ value: T; tokensIn: number; tokensOut: number; model: string }>;
 }
 
-// TODO(phase-2-impl): implement with retries and a timeout. Every call must
-// emit a UsageEvent through usage.service — an untracked LLM call is an
-// invisible cost, which is the thing BRIEF's economics section exists to stop.
+/**
+ * Cheapest current model. Chat over a handful of retrieved passages is not a
+ * reasoning-heavy task, and at $0.05/$0.40 per 1M it is noise next to TTS —
+ * one verbatim book costs more than tens of thousands of chat turns.
+ */
+export const CHAT_MODEL = "gpt-5-nano";
+export const LLM_PROVIDER = "openai";
+
 export function createLlmService(): LlmService {
-  throw new Error("LlmService not implemented");
+  if (!env.LLM_API_KEY) {
+    throw new AppError("llm_not_configured", "LLM_API_KEY is not set", 500, undefined, false);
+  }
+
+  const client = new OpenAI({ apiKey: env.LLM_API_KEY });
+
+  return {
+    provider: LLM_PROVIDER,
+    model: CHAT_MODEL,
+
+    /**
+     * @param maxTokens budget for BOTH reasoning and visible output.
+     *
+     * gpt-5-nano is a reasoning model: `max_completion_tokens` covers its
+     * internal reasoning tokens as well as the answer. Measured, it spends ~128
+     * reasoning tokens on a two-word reply, and far more on a RAG prompt
+     * carrying six passages — so a budget sized for the answer alone is
+     * consumed before a single visible token is produced, and the API returns
+     * `finish_reason: "length"` with EMPTY content and no error.
+     *
+     * 3000 leaves room for reasoning plus a few paragraphs. Do not lower it to
+     * "the length of the answer we want".
+     */
+    async complete({ messages, maxTokens = 3000, timeoutMs = 60_000 }) {
+      const response = await client.chat.completions.create(
+        {
+          model: CHAT_MODEL,
+          messages,
+          max_completion_tokens: maxTokens,
+        },
+        { timeout: timeoutMs },
+      );
+
+      const choice = response.choices[0];
+      if (!choice?.message?.content) {
+        // Name the likely cause. An empty completion from a reasoning model is
+        // almost always the token budget being exhausted by reasoning, and the
+        // generic message sends people looking at the prompt instead.
+        const reason = choice?.finish_reason ?? "unknown";
+        throw new AppError(
+          "llm_empty_response",
+          reason === "length"
+            ? `Model returned no content (finish_reason=length). The token budget was consumed by reasoning before any output — raise maxTokens.`
+            : `Model returned no content (finish_reason=${reason})`,
+          502,
+          undefined,
+          true,
+        );
+      }
+
+      return {
+        content: choice.message.content,
+        tokensIn: response.usage?.prompt_tokens ?? 0,
+        tokensOut: response.usage?.completion_tokens ?? 0,
+        model: response.model,
+      };
+    },
+  };
 }

@@ -79,7 +79,7 @@ were wrong.** Verified:
 
 | Component | Region | How verified |
 |---|---|---|
-| Render | **Oregon** | Render dashboard, 6 services |
+| Render | **Oregon** | Render dashboard, 6 services. API: https://corner-backend-yowp.onrender.com |
 | Atlas | **us-east-1** (N. Virginia) | Atlas cluster page; corroborated by the shard host resolving through `compute-1.amazonaws.com`, us-east-1's legacy EC2 domain |
 | S3 `corner-documents` | **us-east-2** (Ohio) | bucket config |
 

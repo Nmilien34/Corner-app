@@ -28,6 +28,28 @@ validation failure, 401 unauthenticated, 404 for unknown paths — no crashes);
 the worker starts, registers all 7 handlers, claims a job with an atomic lease
 and idles.
 
+## Deployed
+
+| | |
+|---|---|
+| API | **https://corner-backend-yowp.onrender.com** |
+| Health | `/healthz` → `{"data":{"status":"ok","database":true}}` |
+| Region | Render **Oregon** |
+| Database | MongoDB Atlas, **us-east-1** |
+| Storage | S3 `corner-documents`, **us-east-2** |
+
+**The worker is NOT deployed.** Verified 2026-08-28 by enqueueing a job against
+the production database: nothing claimed it in 60 seconds.
+
+That means the pipeline is dark in production. The API answers every route and
+`/healthz` is green, but **nothing parses, embeds, narrates or extracts** —
+every one of those runs through `ProcessingJob`, and only the worker polls it.
+Uploaded documents would sit at `uploaded` forever with no error anywhere.
+
+`render.yaml` defines `corner-worker` as a second service (`type: worker`,
+`npm run start:worker`). It needs creating in Render, with the same
+`corner-secrets` env group as the web service.
+
 ## Folder map
 
 ```

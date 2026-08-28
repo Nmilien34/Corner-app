@@ -10,6 +10,7 @@ import { JOB_TYPES } from "@corner/shared";
 import type { Logger } from "../lib/logger";
 import { sweepOrphanedBlobs } from "./handlers/cleanup-orphaned-blobs";
 import { embedChunks } from "./handlers/embed-chunks";
+import { parseDocument } from "./handlers/parse-document";
 
 export interface JobContext {
   jobId: string;
@@ -44,10 +45,12 @@ export class JobNotImplementedError extends Error {
 }
 
 export const jobHandlers: Record<JobType, JobHandler> = {
-  "parse-document": notImplemented(
-    "parse-document",
-    "Fetch the blob, extract text/outline/pageOffsets, write DocumentContent, enqueue embed-chunks",
-  ),
+  // IMPLEMENTED. Writes chunks for the generation DocumentContent already
+  // claims; a reparse bumps parseVersion before enqueueing, so this handler
+  // never decides the generation number itself.
+  "parse-document": async (payload, context) => {
+    await parseDocument(payload, context);
+  },
   // IMPLEMENTED. Idempotent via the embeddedAt partial index — a retry
   // re-selects only unembedded chunks, so it costs the remainder rather than
   // re-spending the whole document.
