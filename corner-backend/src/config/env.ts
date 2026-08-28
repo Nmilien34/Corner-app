@@ -60,10 +60,44 @@ const envSchema = z.object({
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  const issues = parsed.error.issues
-    .map((issue) => `  ${issue.path.join(".") || "(root)"}: ${issue.message}`)
-    .join("\n");
-  throw new Error(`Invalid environment configuration:\n${issues}`);
+  // Separate "you never set this" from "you set it to something invalid".
+  // They have completely different fixes, and a flat list of Zod messages
+  // makes a 63-character JWT_SECRET look identical to a missing one.
+  const missing: string[] = [];
+  const invalid: string[] = [];
+
+  for (const issue of parsed.error.issues) {
+    const key = issue.path.join(".") || "(root)";
+    const absent = process.env[key] === undefined || process.env[key] === "";
+    (absent ? missing : invalid).push(
+      absent ? `  ${key}` : `  ${key}: ${issue.message}`,
+    );
+  }
+
+  const lines = ["Invalid environment configuration.", ""];
+
+  if (missing.length > 0) {
+    lines.push("NOT SET:", ...missing, "");
+  }
+  if (invalid.length > 0) {
+    lines.push("SET BUT INVALID:", ...invalid, "");
+  }
+
+  lines.push(
+    "Where these come from:",
+    "  - Local:  copy .env.example to .env at the repo root and fill it in.",
+    "  - Render: Dashboard > Env Groups > 'corner-secrets'. Values are declared",
+    "            `sync: false` in render.yaml, which means Render never supplies",
+    "            them — you set them once and both services inherit the group.",
+    "",
+    "  JWT_SECRET must be at least 64 characters. Generate one with:",
+    "      openssl rand -hex 32",
+    "  (32 bytes of hex is exactly 64 characters. Do NOT use Render's dashboard",
+    "  'Generate' button here — its value may be shorter than 64 and will fail",
+    "  this check with a confusing message.)",
+  );
+
+  throw new Error(lines.join("\n"));
 }
 
 export const env = parsed.data;
