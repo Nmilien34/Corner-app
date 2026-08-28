@@ -423,7 +423,7 @@ The following are product architecture, not conventions that can be copied. They
 - Retention and hard-delete behavior for source blobs and derived artifacts.
 - Sepia reading theme and the full Corner navigation graph.
 
-These decisions should be tracked in `docs/OPEN-QUESTIONS.md` when the Phase 1 docs directory is created. No such file is created during Phase 0 so this gate contains the only target-repository change.
+These decisions are tracked in `docs/OPEN-QUESTIONS.md`. That file was created after the Phase 0 gate and now also carries `OQ-001`/`OQ-002` on ATT. An earlier revision of this line claimed the Phase 0 gate contained the only target-repository change; that stopped being true once `docs/` was created, and the claim is withdrawn here rather than left to mislead.
 
 ## Phase 0 gate: proposed Corner baseline
 

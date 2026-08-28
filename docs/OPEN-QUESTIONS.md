@@ -140,6 +140,74 @@ independent of IDFA and ATT.
 
 ---
 
+## OQ-003 — Per-user Document vs shared DocumentContent
+
+**Status:** OPEN — but a decision was **implemented** in Phase 2 rather than deferred, because the models could not be written without one. Recorded here so it is reviewable, not so it is undecided.
+**Needed by:** now. Changing it after routes exist is a migration, not an edit.
+
+### The problem
+
+`BRIEF` lists `Document` with a `contentHash` and `DocumentChunk` with a "document ref", and separately requires content-hash dedupe: "if a document with that hash has already been parsed/narrated, reuse the derived artifacts instead of paying twice."
+
+Those two cannot both hold. If chunks, embeddings, audio and summaries hang off a per-user `Document`, then two users uploading the same PDF either re-pay for embedding and TTS, or the app copies rows and blob keys between users at upload time. This is an internal inconsistency in the brief, not a brief-vs-`CONVENTIONS.md` conflict.
+
+### What was implemented
+
+A split, marked `[NEW — proposed]` in `document-content.model.ts`:
+
+- **`DocumentContent`** — the file. Keyed unique on `contentHash`. Owns the blob, page count, outline, `pageOffsets`, parse status and `parseVersion`. Everything expensive hangs off it: `DocumentChunk`, `NarrationJob`, `AudioSegment`, `DocumentSummary`.
+- **`Document`** — the library entry. Per user. Owns the user's filename, tags, favourite, reading progress. Cheap to create and to hard-delete.
+- `DocumentContent.referenceCount` tracks how many `Document`s point at it. Zero makes the blob and derived artifacts eligible for `cleanup-orphaned-blobs`.
+
+### What is still open
+
+- **Reference counting is not transactional.** Two concurrent uploads of the same file can both increment, and a delete racing an upload can decrement to zero while a new reference is being created. Needs either a transaction or a grace period before `cleanup-orphaned-blobs` acts on a zero. Currently neither exists.
+- **Privacy tension.** Shared content means one user's hard delete must not destroy another user's copy. The refcount handles that, but it also means "delete my document" does not delete the bytes while anyone else holds the same file. That is defensible, and it is not what a user reading `PRIVACY.md` will assume. Needs an explicit sentence in `PRIVACY.md` and possibly a product decision.
+- **Cross-user inference.** Dedupe is observable: upload timing reveals whether a file was already in the system. Low severity, but it is a real side channel for a product holding contracts and medical records.
+
+---
+
+## OQ-004 — Action-item extraction is per-user but should be paid for once
+
+**Status:** OPEN
+**Needed by:** before the `extract-action-items` handler is written.
+
+`ActionItem` is per-user, and has to be: the user edits titles, sets due dates, checks items off. Those cannot be shared.
+
+But the LLM extraction that *produces* the list is content-level — the same contract yields the same obligations for everyone — and it is one of the more expensive calls in the app. So the second user to open a given file should not pay for it again.
+
+The likely shape is a cached content-level extraction result, fanned out into per-user `ActionItem` rows on first open. That is not implemented: nothing currently stores a content-level extraction. `ActionItem.extractionKey` exists and is uniquely indexed per document, so the fan-out has stable identity to write against, but the cache itself is undesigned.
+
+Open: where the cached extraction lives (its own collection, or on `DocumentContent`), and whether re-running extraction on a newer model invalidates per-user edits (it must not — `editedByUser` exists for this, but the merge rule is unwritten).
+
+---
+
+## OQ-005 — Embedding provider and vector dimensions
+
+**Status:** OPEN
+**Needed by:** before the Atlas Vector Search index is created, which is before chat works at all.
+
+`docs/atlas-vector-index.md` uses `numDimensions: 1536` as a placeholder. It must match the real output width of the chosen embedding model, and Atlas will not report a mismatch — it accepts the index and returns bad results.
+
+`DocumentChunk` records `embeddingModel` and `embeddingDimensions` per chunk so a model change is detectable and re-embeddable incrementally rather than being a silent corpus-wide corruption. Changing dimensions after launch means creating a second index, re-embedding into it, and swapping — not an in-place edit.
+
+Undecided: provider, model, dimensions, and whether chunk size should be tuned to the model's context rather than the 512-ish default assumption baked into nothing yet.
+
+---
+
+## OQ-006 — Quota counters use period keys, not reset dates
+
+**Status:** OPEN — implemented as described, flagged for review.
+**Needed by:** before quota middleware is written.
+
+`BRIEF` says `User` carries "quota counters with a reset date", but the three allowances it specifies do not share a period: pages parsed and TTS seconds are monthly, chat messages are daily. One reset date cannot express that.
+
+Implemented instead: each counter stores the **period key** it was last written in (`"2026-08"`, `"2026-08-28"`). If the stored key is not the current key, the counter is stale and reads as zero. The reset is implicit — no cron job, no window where a job has not fired yet and a user gets a free month, and no race between a reset writer and a concurrent consume.
+
+Open: the period keys are UTC. A user in UTC-8 gets their daily chat quota back at 4pm local. Pepta already solved a version of this with a timezone parameter on request; whether Corner needs the same, or whether UTC is acceptable for a quota rather than a health log, is undecided.
+
+---
+
 ## Backlog not yet migrated
 
 `CONVENTIONS.md` §"Conventions absent from both references" carries a list of

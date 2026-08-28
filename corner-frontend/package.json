@@ -1,0 +1,7 @@
+{
+  "name": "@corner/frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Corner mobile app (Expo). Scaffolded in Phase 3.",
+  "scripts": {}
+}

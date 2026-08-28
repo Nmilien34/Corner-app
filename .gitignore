@@ -1,0 +1,27 @@
+node_modules/
+dist/
+.expo/
+.env
+.env.*
+!.env.example
+coverage/
+
+# Build + native artifacts
+corner-frontend/build/
+ios/Pods/
+ios/build/
+android/
+*.xcarchive/
+*.dSYM/
+
+# Marketing is ignored: heavy binaries (store renders, video, ad creative) that
+# bloat the object store permanently and are recoverable from their sources.
+# design/ is deliberately NOT ignored — see CONVENTIONS.md "Marketing and
+# design disagreement". Do not add a !marketing/README.md negation; that file
+# is meant to live on disk only.
+marketing/
+
+*.log
+.DS_Store
+.worktrees/
+worktrees/
