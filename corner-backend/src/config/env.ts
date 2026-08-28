@@ -58,7 +58,65 @@ const envSchema = z.object({
     .enum(["fatal", "error", "warn", "info", "debug", "trace"])
     .default("info"),
 
-  MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
+  // Shape-checked here, not left to the driver.
+  //
+  // Mongoose's failure for a malformed URI is a MongoParseError stack trace
+  // that names the connection-string parser rather than the variable, so the
+  // reader has to already know what went wrong to read it. These checks name
+  // the actual mistake instead. Whitespace is trimmed rather than reported —
+  // a trailing newline from a copy-paste is never deliberate.
+  MONGODB_URI: z
+    .string()
+    .min(1, "MONGODB_URI is required")
+    .transform((value) => value.trim())
+    .superRefine((value, ctx) => {
+      const add = (message: string): void => {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+      };
+
+      // The paste-the-whole-line mistake. Render takes key and value in
+      // separate fields, so a .env line pasted into the value box lands here.
+      const prefix = /^([A-Z_][A-Z0-9_]*)=/.exec(value);
+      if (prefix) {
+        add(
+          `starts with "${prefix[1]}=" — the variable NAME was pasted into the ` +
+            "value. Paste only the part after the '=' sign.",
+        );
+        return;
+      }
+
+      if (/^['"]|['"]$/.test(value)) {
+        add(
+          "is wrapped in quotes. Render stores the value literally, so the " +
+            "quotes become part of the connection string. Remove them.",
+        );
+        return;
+      }
+
+      if (!/^mongodb(\+srv)?:\/\//.test(value)) {
+        add(
+          `does not start with "mongodb://" or "mongodb+srv://" (it starts ` +
+            `with "${value.slice(0, 12)}..."). Copy the full string from ` +
+            "Atlas > Connect > Drivers.",
+        );
+        return;
+      }
+
+      if (!/^mongodb(\+srv)?:\/\/[^:]+:[^@]+@/.test(value)) {
+        add(
+          "has no username:password before the '@'. Atlas's copied string " +
+            "contains a <db_password> placeholder that must be replaced.",
+        );
+        return;
+      }
+
+      if (/[<>]/.test(value)) {
+        add(
+          "still contains a < > placeholder from the Atlas example. Replace " +
+            "it with the real password.",
+        );
+      }
+    }),
 
   // The database Corner expects to be connected to, asserted at boot.
   //
