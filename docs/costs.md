@@ -28,26 +28,31 @@ than with signups or storage. The more the product works, the more it costs.
 
 Assumptions, all stated because the result is sensitive to them:
 
-- Speech audio at **64 kbps mono** — reasonable for TTS narration
+- Speech audio at **128 kbps mono, 24 kHz** — **MEASURED, not assumed**. A probe
+  call to `/v1/audio/speech` with `tts-1` returned `MPEG ADTS, layer III, v2,
+  128 kbps, 24 kHz, Monaural`. An earlier revision of this file assumed 64 kbps
+  and was wrong by 2x.
 - S3 egress to internet at **~$0.09/GB** (US regions, standard tier)
 - One listen = one transfer; downloads and re-listens on other devices multiply it
 
 ```
-64 kbps x 3600 s  = 230.4 Mbit = ~28.8 MB per listening hour
-28.8 MB = 0.0288 GB x $0.09/GB = ~$0.0026 per listening hour
+128 kbps x 3600 s = 460.8 Mbit = ~57.6 MB per listening hour
+57.6 MB = 0.0576 GB x $0.09/GB = ~$0.0052 per listening hour
 ```
 
-**≈ $0.003 per listening hour, or ~$0.26 per 100 listening hours.**
+**≈ $0.005 per listening hour, or ~$0.52 per 100 listening hours.**
 
-At 128 kbps it roughly doubles to ~$0.005/hour. On R2 both numbers are **$0**.
+On R2 it is **$0**. No decision changes — generation still dominates delivery by
+a wide margin — but the figure was understated by half and the tables below use
+the measured number.
 
 Scale it to see where it bites rather than where it starts:
 
 | Monthly listening | S3 egress | R2 egress |
 |---|---|---|
-| 1,000 hours | ~$3 | $0 |
-| 50,000 hours | ~$130 | $0 |
-| 500,000 hours | ~$1,300 | $0 |
+| 1,000 hours | ~$5 | $0 |
+| 50,000 hours | ~$260 | $0 |
+| 500,000 hours | ~$2,600 | $0 |
 
 AWS also provides a standing free egress allowance (100 GB/month at time of
 writing), so early usage is likely to cost nothing at all. That is the trap: the
@@ -210,19 +215,22 @@ characters.
 | | Cost | Paid |
 |---|---|---|
 | TTS generation | **$0.743** | once, per {content, chapter, voice, speed} |
-| S3 egress | **$0.0026** | every listen |
+| S3 egress | **$0.0052** | every listen |
 
-Generation is **286x** delivery. Two consequences worth stating plainly:
+Generation is **~140x** delivery, using the measured 128 kbps bitrate. Two
+consequences worth stating plainly:
 
 **Dedupe of generated audio is worth far more than the storage it saves.** The
-second listener of a popular document costs $0.0026 instead of $0.743. That is
-the same content-level sharing the schema already provides via `NarrationJob`
-keyed on content rather than on a user's `Document` — its value is 286x larger
-than the disk it avoids.
+second listener of a popular document costs $0.0052 instead of $0.743 — the same
+content-level sharing the schema already provides via `NarrationJob` keyed on
+content rather than on a user's `Document`. Its value is ~140x larger than the
+disk it avoids.
 
-**The crossover is ~286 listens.** Below that, generation dominates and the
+**The crossover is ~140 listens.** Below that, generation dominates and the
 egress analysis earlier in this file is aimed at the smaller number. Above it,
-egress takes over and the R2 comparison becomes the live question again.
+egress takes over and the R2 comparison becomes the live question again. The
+correction from 64 to 128 kbps halved that crossover, so it arrives sooner than
+previously recorded.
 
 ### Why this drives lazy, chapter-scoped generation
 

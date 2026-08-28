@@ -342,6 +342,21 @@ The obvious structure: **on-device TTS for verbatim** (free, uses the platform v
 
 Corner's narration economics assume roughly **$5,000 in OpenAI credits valid until approximately next year**, covering LLM, embeddings and TTS on one key.
 
+### What a successful TTS call does and does not prove
+
+On 2026-08-28 a probe call to `/v1/audio/speech` returned real audio (11,520
+bytes, `tts-1`, 12 characters, ~$0.00018).
+
+**That proves two things:** the restricted key's text-to-speech scope works, and
+*something* paid for the request — a hard-failed grant returns
+`insufficient_quota`.
+
+**It does NOT prove the $5,000 grant covered it.** A card on file would produce
+the same 200. Nothing observable from an API call distinguishes "billed to
+credits" from "billed to a payment method", so **"TTS works" must not be read as
+"TTS is covered by credits"**. Only the billing dashboard separates them, and
+that check is Nick's.
+
 **Two parts of that are assumed, not verified, and both would change the plan:**
 
 1. **The exact expiry date.** "About next year" sets the runway. If the credits expire sooner than the point at which narration reaches meaningful volume, they subsidise nothing and the real cost arrives at launch.
