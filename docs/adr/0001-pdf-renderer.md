@@ -115,20 +115,59 @@ buffer — and it is unproven for Corner. Four things must be measured, in this
 priority order:
 
 1. **Peak RSS on the 350-page corpus under virtualization.** The one real risk.
+   **UNMEASURED** — needs hardware.
 2. **Scroll smoothness under virtualization** — frame timing, not impressions.
-3. **Server char offset → screen rect, round-tripped.** Pick an offset range,
-   draw the rect, confirm it lands on the right words and survives scroll and
-   zoom. *If this does not work cleanly the anchor design itself is in question,
-   not just the renderer* — escalate immediately rather than working around it.
-4. **Time to first page on a cold open.**
+   **UNMEASURED** — needs hardware.
+3. **Server char offset → screen rect, round-tripped.** **PASSED** — see below.
+4. **Time to first page on a cold open.** **UNMEASURED** — needs hardware.
 
-Test on a **low-end Android handset, not a flagship**, plus a physical iPhone.
-Simulators are disqualified for 1 and 2: they use host RAM and host GPU, which
-is exactly what these targets are trying to bound.
+Targets 1, 2 and 4 need a **low-end Android handset, not a flagship**, plus a
+physical iPhone. Simulators are disqualified for them: they use host RAM and
+host GPU, which is exactly what those targets bound. No devices are currently
+attached (`devicectl` reports the known iPhone `unavailable`; `adb devices` is
+empty).
 
-**Status: unmeasured.** No physical devices are attached to the build machine
-(`devicectl` reports the one known iPhone `unavailable`; `adb devices` is empty).
-The corpus generator exists at `spikes/pdf-renderer/`; the harness does not.
+### Target 3 passed — the anchor design holds
+
+Run in a desktop browser, which is the correct instrument for a correctness
+question. Against the 350-page corpus (1,325,480 characters), virtualization on:
+
+- **60/60** sentence-length ranges spread across the document drew text matching
+  the expected slice exactly
+- **379/379** on a systematic sweep every 3,500 characters
+- Survives scroll away and back with identical position
+- Survives zoom from 0.75 to 2.5 (page width 459px → 1530px) with **normalized
+  highlight width identical at 0.7765 throughout**
+
+**This is the finding that most matters for the schema:** `DocumentChunk.anchor`
+and `AudioSegment.timingMap` are sound as designed. A server-issued character
+offset resolves to the right words on screen and stays anchored.
+
+The spike also caught **two bugs of the silent-wrong-answer class**, which is
+worth recording because it is the exact failure mode this ADR argues native SDKs
+would multiply by requiring the mapping twice:
+
+1. pdf.js's TextLayer renders **no span for a zero-length item** (real `hasEOL`
+   markers that contribute a newline and therefore count for offsets). Positional
+   span indexing agrees with reality on most pages and shifts on the rest — page
+   94 has 38 items and 36 spans. It surfaced as "no rects" only because the shift
+   ran off the end; a smaller shift highlights the wrong sentence silently.
+2. pdf.js v4's TextLayer **requires `--scale-factor`** on its container. Without
+   it, glyphs look right but measured widths are wrong at any non-default zoom —
+   highlight width ranged 0.92 → 0.58 → 1.35 of page width while x/y anchored
+   perfectly and the text was correct.
+
+Both are now fixed and guarded in `spikes/pdf-renderer/harness/text-index.js`,
+which asserts the span/item count relationship before measuring anything.
+
+### Two constraints the client must respect
+
+- **A page must be rendered before its offsets can resolve**, and rendering is
+  async. Highlight-during-narration has to be sequenced — scroll into view,
+  await render, then draw.
+- **A range spanning a page boundary resolves only on its first page.** Verified
+  across the 94 → 95 boundary. Sentences do straddle page breaks, so the client
+  must split ranges at page boundaries and resolve each side.
 
 ## What would trigger a switch
 

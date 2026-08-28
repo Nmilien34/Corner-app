@@ -1,0 +1,12 @@
+{
+  "name": "corner-pdf-spike-harness",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Spike target 3: server char offset -> screen rect round trip.",
+  "scripts": {
+    "serve": "node server.js"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^4.10.38"
+  }
+}

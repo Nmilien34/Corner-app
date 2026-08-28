@@ -259,7 +259,7 @@ Related: this only bites where an artifact is content-scoped and shared — narr
 
 ## OQ-008 — ComPDFKit licence quote (priced fallback for the renderer)
 
-**Status:** OPEN — action sits with the product owner, not the codebase.
+**Status:** OPEN — **not being pursued.** Requesting the quote was explicitly reversed on 2026-08-28: it is a sales conversation for a fallback the spike may make unnecessary. The questions below stay on record so the quote can be requested later without re-deriving them.
 **Needed by:** only if the pdf.js memory ceiling proves fatal. Not on the critical path.
 
 `docs/adr/0001-pdf-renderer.md` names ComPDFKit as the priced fallback. It has **no public pricing** — every tier is quote-only, and the referenced "Community License" for start-ups carries no published figure (verified at `compdf.com/pricing`, 2026-08-28).
