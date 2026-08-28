@@ -1,7 +1,7 @@
 // Orchestrates: fetch chunks -> build script -> segment -> TTS each segment ->
 // upload -> assemble manifest.
 
-import type { NarrationMode } from "@corner/shared";
+import type { NarrationMode, TimingCue } from "@corner/shared";
 
 export interface NarrationManifestSegment {
   ordinal: number;
@@ -10,6 +10,15 @@ export interface NarrationManifestSegment {
   url: string;
   durationSeconds: number;
   startOffsetSeconds: number;
+  /**
+   * Follow-along cues, ALREADY SPLIT PER PAGE.
+   *
+   * AudioSegment.timingMap persists raw document-wide charStart/charEnd. The
+   * manifest decomposes each cue through splitRangeByPage before it goes over
+   * the wire, so the player resolves each span against one rendered page and
+   * never needs pageOffsets. Verbatim mode only; podcast mode returns [].
+   */
+  cues: TimingCue[];
 }
 
 export interface NarrationManifest {
@@ -38,6 +47,12 @@ export interface NarrationService {
     speed: number;
   }): Promise<{ narrationId: string; created: boolean }>;
 
+  /**
+   * TODO(phase-2-impl): decompose every persisted cue with splitRangeByPage
+   * using DocumentContent.pageOffsets before returning. A cue that crosses a
+   * page boundary must arrive as two spans, not one — the client cannot split
+   * it and will silently highlight only the first page's portion.
+   */
   buildManifest(narrationId: string): Promise<NarrationManifest>;
   cancel(narrationId: string): Promise<void>;
 }

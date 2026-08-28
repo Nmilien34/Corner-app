@@ -162,8 +162,14 @@ const envSchema = z.object({
   // Storage and AI providers are declared but not yet read by any service.
   // Optional here so the API boots without them; the services that need them
   // assert at their own boundary rather than blocking the whole process.
+  // Leave EMPTY for AWS S3 — the SDK derives the endpoint from the region.
+  // Set it ONLY for S3-compatible providers that need an explicit host, e.g.
+  // Cloudflare R2 (https://<account>.r2.cloudflarestorage.com).
   STORAGE_ENDPOINT: z.string().optional(),
-  STORAGE_REGION: z.string().default("auto"),
+  // A REAL AWS region. "auto" is a Cloudflare R2 convention and the AWS SDK
+  // rejects it — it was the default here only because the docs originally
+  // assumed R2. us-east-1 matches Atlas and Render; see docs/costs.md.
+  STORAGE_REGION: z.string().default("us-east-1"),
   STORAGE_BUCKET: z.string().optional(),
   STORAGE_ACCESS_KEY_ID: z.string().optional(),
   STORAGE_SECRET_ACCESS_KEY: z.string().optional(),

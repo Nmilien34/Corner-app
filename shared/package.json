@@ -20,6 +20,10 @@
     "./schemas": {
       "types": "./dist/schemas/index.d.ts",
       "default": "./dist/schemas/index.js"
+    },
+    "./utils": {
+      "types": "./dist/utils/index.d.ts",
+      "default": "./dist/utils/index.js"
     }
   },
   "scripts": {

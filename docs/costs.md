@@ -71,22 +71,44 @@ It does mean:
 - Revisit when monthly listening hours pass roughly 50,000, or whenever egress
   becomes visible next to TTS spend.
 
-## `STORAGE_REGION` is wrong for S3
+## `STORAGE_REGION` was wrong for S3
 
-`render.yaml` hardcodes `STORAGE_REGION: auto` on both services, and
-`config/env.ts` defaults it to `"auto"`.
+**Fixed 2026-08-28.** `render.yaml` hardcoded `STORAGE_REGION: auto` on both
+services and `config/env.ts` defaulted to `"auto"`.
 
-`auto` is an R2 convention. **The AWS SDK requires a real region name** — the
-deployed bucket is `us-east-2`. This is a live misconfiguration inherited from
-the R2 assumption, and it is currently invisible because `StorageService` throws
-`not implemented`, so nothing has ever asked the SDK to resolve a region.
+`auto` is a Cloudflare R2 convention and **the AWS SDK rejects it**. This was a
+live misconfiguration inherited from the R2 assumption, invisible only because
+`StorageService` throws `not implemented`, so nothing had ever asked the SDK to
+resolve a region. It would have surfaced as the first failure the moment storage
+was implemented — at which point it would have looked like a storage bug rather
+than a stale default.
 
-It will surface as the first failure the moment storage is implemented.
+Now `us-east-1` in all three places.
 
-## Region alignment
+## Region alignment — fixed 2026-08-28
 
-Atlas and Render are both in **us-east-1** (N. Virginia); the S3 bucket is in
-**us-east-2** (Ohio). Cross-region transfer between AWS regions is billed
-separately from internet egress and adds latency to every blob read. Worth
-aligning when the bucket is next revisited — not urgent, but free to fix now and
-not free later.
+The bucket was originally created in **us-east-2** (Ohio) while Atlas and Render
+are both in **us-east-1** (N. Virginia). That meant **every object read crossed
+an AWS region boundary**.
+
+Cross-region transfer is billed *separately from internet egress* — it is a
+second line item, not a discount on the first — and it adds a round trip of
+latency to every blob fetch. On the audio path that lands on top of the egress
+cost already described above, so the two compound: each streamed segment would
+have been billed once to leave us-east-2 and again to leave AWS.
+
+**The bucket has been moved to us-east-1.** This was done while it was
+effectively empty, which is the only cheap moment to do it — migrating a bucket
+holding real user documents means copying every object (billed), re-signing
+every stored key, and a window where `Document.contentId` points at blobs in two
+places. The fix cost nothing now and would have been genuinely disruptive later.
+
+`STORAGE_REGION` is now `us-east-1` in `config/env.ts`, both services in
+`render.yaml`, and `.env.example`.
+
+## `STORAGE_ENDPOINT` is empty for AWS
+
+The AWS SDK derives its endpoint from the region. `STORAGE_ENDPOINT` is set only
+for S3-compatible providers that need an explicit host — Cloudflare R2 being the
+one this codebase would plausibly move to. Leaving it empty is correct for the
+deployed setup, not an oversight.

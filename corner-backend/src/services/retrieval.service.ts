@@ -1,11 +1,16 @@
 // RAG retrieval over DocumentChunk, backed by Atlas Vector Search.
 
+import type { PageSpan } from "@corner/shared";
+
 export interface RetrievedChunk {
   chunkId: string;
   text: string;
-  page: number;
-  charStart: number;
-  charEnd: number;
+  /**
+   * Decomposed per page. A chunk routinely straddles a page break, so a
+   * citation built from one carries more than one span; emitting a single
+   * page + range would quietly drop the remainder.
+   */
+  spans: PageSpan[];
   headingPath: string[];
   score: number;
 }

@@ -28,6 +28,13 @@
 //   - chat citations      a tappable page plus the span that justified it
 //   - summaries           chapter grouping
 //
+// STORAGE IS CANONICAL, RESPONSES ARE DECOMPOSED. What is persisted here is a
+// single charStart/charEnd, which is compact and is the form dedupe and
+// provenance need. What goes over the wire is that range already split at page
+// boundaries by splitRangeByPage — see DocumentAnchor in @corner/shared. The
+// client can only resolve a range against one rendered page, so a response
+// carrying an unsplit cross-page range silently highlights half a sentence.
+//
 // headingPath is denormalized onto the chunk on purpose. Resolving the chapter
 // through the outline on every read would be a second query on the hottest
 // path in the app, and the outline is immutable within a parse generation, so

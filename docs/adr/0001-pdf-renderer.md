@@ -160,14 +160,39 @@ would multiply by requiring the mapping twice:
 Both are now fixed and guarded in `spikes/pdf-renderer/harness/text-index.js`,
 which asserts the span/item count relationship before measuring anything.
 
-### Two constraints the client must respect
+### Design consequences of target 3
 
-- **A page must be rendered before its offsets can resolve**, and rendering is
-  async. Highlight-during-narration has to be sequenced — scroll into view,
-  await render, then draw.
-- **A range spanning a page boundary resolves only on its first page.** Verified
-  across the 94 → 95 boundary. Sentences do straddle page breaks, so the client
-  must split ranges at page boundaries and resolve each side.
+Two things the spike established. Both are **requirements**, not observations.
+
+**R1 — The player MUST pre-render the page ahead of the audio position.**
+
+A page has no text layer until it is rendered, and rendering is async. A player
+that renders reactively — waiting until audio reaches a page, then rendering,
+then resolving the cue — **drops the highlight at every page turn**, for as long
+as the render takes. That is not an edge case: it happens at every single page
+boundary, which for continuous narration is every few tens of seconds, and it is
+most visible precisely when the reader is following along.
+
+The player therefore keeps the page *ahead* of the current audio position
+rendered, not merely the current one. The virtualization buffer is not only a
+scroll-performance concern; it is a correctness requirement for follow-along
+highlighting.
+
+**R2 — Ranges are split per page by the SERVER, not the client.**
+
+Verified across the 94 → 95 boundary: a range crossing a page resolved on its
+first page only, drawing a partial highlight and reporting success. Sentences
+straddle page breaks routinely.
+
+The split belongs on the server because the server owns
+`DocumentContent.pageOffsets`. Every response carrying a character range —
+narration manifest cues, chunk anchors, chat citations — emits it **already
+decomposed** into `PageSpan[]`. The client iterates spans and resolves each
+against its own page. It never splits, and `pageOffsets` is never sent over the
+wire.
+
+Implemented as `splitRangeByPage` in `@corner/shared`, with the
+never-crosses-a-boundary invariant under test.
 
 ## What would trigger a switch
 

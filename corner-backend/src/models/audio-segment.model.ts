@@ -17,6 +17,11 @@ import { applyApiTransforms } from "./model-utils";
  * to a page through DocumentContent.pageOffsets — one coordinate system for
  * narration, citations and action items rather than three.
  *
+ * Persisted RAW — document-wide offsets, possibly crossing a page boundary.
+ * The narration manifest decomposes each cue with splitRangeByPage before
+ * returning it, so the player never has to split and never receives
+ * pageOffsets.
+ *
  * Populated only for verbatim mode. Podcast mode is a generated script that
  * does not correspond to document text, so its segments carry no cues and the
  * reader does not follow along. Structure is defined now per BRIEF; the

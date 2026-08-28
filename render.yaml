@@ -60,8 +60,10 @@ services:
         value: production
       - key: LOG_LEVEL
         value: info
+      # A REAL AWS region — "auto" is an R2-ism the AWS SDK rejects.
+      # Matches Atlas and Render, so object reads stay in-region.
       - key: STORAGE_REGION
-        value: auto
+        value: us-east-1
       - key: JWT_EXPIRES_IN
         value: 30d
 
@@ -82,8 +84,10 @@ services:
         value: production
       - key: LOG_LEVEL
         value: info
+      # A REAL AWS region — "auto" is an R2-ism the AWS SDK rejects.
+      # Matches Atlas and Render, so object reads stay in-region.
       - key: STORAGE_REGION
-        value: auto
+        value: us-east-1
       - key: JWT_EXPIRES_IN
         value: 30d
       # Lower than the API's: the worker is a background poller, and this
