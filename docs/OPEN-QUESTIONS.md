@@ -159,11 +159,26 @@ A split, marked `[NEW — proposed]` in `document-content.model.ts`:
 - **`Document`** — the library entry. Per user. Owns the user's filename, tags, favourite, reading progress. Cheap to create and to hard-delete.
 - `DocumentContent.referenceCount` tracks how many `Document`s point at it. Zero makes the blob and derived artifacts eligible for `cleanup-orphaned-blobs`.
 
-### What is still open
+### RESOLVED — reference counting replaced by a sweep
 
-- **Reference counting is not transactional.** Two concurrent uploads of the same file can both increment, and a delete racing an upload can decrement to zero while a new reference is being created. Needs either a transaction or a grace period before `cleanup-orphaned-blobs` acts on a zero. Currently neither exists.
-- **Privacy tension.** Shared content means one user's hard delete must not destroy another user's copy. The refcount handles that, but it also means "delete my document" does not delete the bytes while anyone else holds the same file. That is defensible, and it is not what a user reading `PRIVACY.md` will assume. Needs an explicit sentence in `PRIVACY.md` and possibly a product decision.
-- **Cross-user inference.** Dedupe is observable: upload timing reveals whether a file was already in the system. Low severity, but it is a real side channel for a product holding contracts and medical records.
+`referenceCount` is **gone**. It was a mutable counter incremented and decremented by two racing code paths: a delete could reach zero while a concurrent upload was creating a new reference, and the blob would be swept out from under a live library entry. Making that safe needed a transaction around every upload and every delete.
+
+`cleanup-orphaned-blobs` now asks the question at sweep time instead — which `DocumentContent` has no `Document` pointing at it, and has been that way longer than `ORPHAN_GRACE_HOURS` (default 24). Correct by construction, no counter to drift, and the age threshold protects the window between creating content and creating its `Document` without any lock ordering. `DocumentContent` carries a `{updatedAt}` index for the scan; `Document.contentId` is already indexed for the anti-join.
+
+### RESOLVED — the dedupe check must not be observable
+
+`POST /v1/documents/upload-url` is described in `BRIEF` as "presigned upload target + content-hash dedupe check". Server-side dedupe stays; **the check must not be observable by the client**.
+
+A response that varied on whether the hash was already known would let anyone probe for the existence of a specific document by hashing a candidate file and asking. Confirming that a particular severance agreement, diagnosis letter or court filing exists in Corner is a disclosure even though no bytes are returned. That is a real leak class, and Corner's corpus is exactly the corpus where it matters.
+
+The contract is therefore fixed at one shape: always 200, always a usable upload target, no `cached`/`deduped`/`exists` field, and no difference in what the client does next. The client always uploads; the server discards bytes it already has, at registration, invisibly. This is pinned in `uploadUrlResponseSchema` in `@corner/shared` and restated on `StorageService.createPresignedUpload`, because it is the kind of property a later "optimization" removes by accident.
+
+Exploitation is unlikely at current scale — it needs an attacker who already has the candidate file and wants to confirm you hold it. But the fix is free today and expensive after a released client depends on the response shape, which is why it is settled now rather than logged for later.
+
+### Still open
+
+- **Deletion semantics.** Shared content means one user's hard delete must not destroy another user's copy. That is handled, and it also means "delete my document" does not destroy the bytes while anyone else holds the same file. Defensible; not what a user reading a deletion promise assumes. `PRIVACY.md` now states it precisely, but whether it is the right *product* answer is undecided.
+- **Cross-user timing inference.** Even with an identical response shape, a deduped upload could in principle be distinguished by how fast later processing completes — a document that is already parsed reaches `parsed` immediately. Lower severity than a response-shape leak and harder to fix without deliberately delaying work. Unaddressed.
 
 ---
 
@@ -184,7 +199,18 @@ Open: where the cached extraction lives (its own collection, or on `DocumentCont
 
 ## OQ-005 — Embedding provider and vector dimensions
 
-**Status:** OPEN
+**Status:** **RESOLVED** — OpenAI `text-embedding-3-small`, 1536 dimensions, cosine.
+**Decided:** 2026-08-28. Full reasoning in `docs/atlas-vector-index.md`.
+
+Pinned in code as `EMBEDDING_PROVIDER` / `EMBEDDING_MODEL` / `EMBEDDING_DIMENSIONS` in `@corner/shared` so the service, the index definition and the doc cannot drift apart. `-3-large` was considered and rejected: 6.5x the price for a gain that does not materialize when retrieval is scoped to a single document by the mandatory `contentId` filter.
+
+The worker now checks the index at startup and warns loudly if it is missing or still building, rather than letting a deploy look healthy and fail at the first chat message.
+
+Residual risk kept on the record: Atlas does **not** validate vector width against the index — a mismatch is accepted silently and returns bad results. The embedding service must assert its own output width against `EMBEDDING_DIMENSIONS` before writing. Changing dimensions later is a create-reindex-swap migration, not an edit.
+
+<details><summary>Original framing</summary>
+
+**Was:** OPEN
 **Needed by:** before the Atlas Vector Search index is created, which is before chat works at all.
 
 `docs/atlas-vector-index.md` uses `numDimensions: 1536` as a placeholder. It must match the real output width of the chosen embedding model, and Atlas will not report a mismatch — it accepts the index and returns bad results.
@@ -192,6 +218,10 @@ Open: where the cached extraction lives (its own collection, or on `DocumentCont
 `DocumentChunk` records `embeddingModel` and `embeddingDimensions` per chunk so a model change is detectable and re-embeddable incrementally rather than being a silent corpus-wide corruption. Changing dimensions after launch means creating a second index, re-embedding into it, and swapping — not an in-place edit.
 
 Undecided: provider, model, dimensions, and whether chunk size should be tuned to the model's context rather than the 512-ish default assumption baked into nothing yet.
+
+</details>
+
+**Still open from that framing:** chunk size is still not tuned to the model. `ChunkingService.chunk` takes `targetTokens` and `overlapTokens` with no defaults chosen.
 
 ---
 
@@ -205,6 +235,25 @@ Undecided: provider, model, dimensions, and whether chunk size should be tuned t
 Implemented instead: each counter stores the **period key** it was last written in (`"2026-08"`, `"2026-08-28"`). If the stored key is not the current key, the counter is stale and reads as zero. The reset is implicit — no cron job, no window where a job has not fired yet and a user gets a free month, and no race between a reset writer and a concurrent consume.
 
 Open: the period keys are UTC. A user in UTC-8 gets their daily chat quota back at 4pm local. Pepta already solved a version of this with a timezone parameter on request; whether Corner needs the same, or whether UTC is acceptable for a quota rather than a health log, is undecided.
+
+---
+
+## OQ-007 — Does serving cached audio consume TTS quota?
+
+**Status:** OPEN — deliberately not resolved in the scaffold.
+**Needed by:** before quota enforcement is wired to the narration path.
+
+Corner deduplicates generated audio across users. When a second user requests a narration that already exists, Corner spends nothing: no TTS call, no LLM call, just a manifest and some presigned URLs.
+
+So when user B streams 40 minutes of audio that user A paid to generate, what should happen to B's TTS quota?
+
+**The lean is: quota tracks generation, entitlement gates access.** Under that reading B's quota is untouched — quota exists to bound what Corner SPENDS, and Corner spent nothing — while B's entitlement is still checked in full on the read, so a free user is refused regardless of how cheap serving them would be. That keeps the two mechanisms answering the two different questions they were built for, and it is why `UsageService.record` and `UsageService.consumeQuota` are separate calls rather than one: coupling them would settle this question by accident.
+
+**The counter-argument is real enough to keep this open.** Quota is also a fairness and abuse bound, not purely a cost bound. A popular public textbook could be narrated once and then streamed by unlimited free-tier-adjacent users at zero quota cost, and bandwidth is not free even when generation is. If quota is the only lever limiting consumption, exempting cache hits removes the lever exactly where volume concentrates.
+
+Not resolved here. What the scaffold does is keep both answers reachable: quota consumption is an explicit separate call, so making cached reads consume quota is a one-line change at the call site rather than an unpicking of coupled logic.
+
+Related: this only bites where an artifact is content-scoped and shared — narration audio, summaries, and the cached action-item extraction. It does not apply to chat, which spends an LLM call per message no matter who asks.
 
 ---
 

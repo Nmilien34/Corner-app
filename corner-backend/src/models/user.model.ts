@@ -6,6 +6,7 @@ import type { AuthProvider, SubscriptionStatus } from "@corner/shared";
 import { AUTH_PROVIDERS, SUBSCRIPTION_STATUSES } from "@corner/shared";
 import mongoose, { Schema } from "mongoose";
 import type { Document, Types } from "mongoose";
+import { dayKey, monthKey } from "../lib/billing-period";
 import { applyApiTransforms, applySoftDeleteQueryMiddleware } from "./model-utils";
 
 export interface LinkedAuthProviderDocument {
@@ -93,13 +94,36 @@ const entitlementSchema = new Schema<UserEntitlementDocument>(
   { _id: false },
 );
 
+// The period keys default to the CURRENT period, not to an empty string.
+//
+// Two reasons, one of them load-bearing. Semantically, a new user genuinely
+// has "0 consumed in this period", which is what the pair now says. And
+// mechanically, Mongoose treats an empty string as failing `required: true` —
+// `required` tests truthiness, not presence — so `required: true` with
+// `default: ""` makes the subdocument unconstructable and User.create() throws
+// on every anonymous signup.
 const quotaSchema = new Schema<UserQuotaDocument>(
   {
-    pagesParsedPeriod: { type: String, required: true, default: "", trim: true },
+    pagesParsedPeriod: {
+      type: String,
+      required: true,
+      default: () => monthKey(),
+      trim: true,
+    },
     pagesParsed: { type: Number, required: true, default: 0, min: 0 },
-    ttsSecondsPeriod: { type: String, required: true, default: "", trim: true },
+    ttsSecondsPeriod: {
+      type: String,
+      required: true,
+      default: () => monthKey(),
+      trim: true,
+    },
     ttsSeconds: { type: Number, required: true, default: 0, min: 0 },
-    chatMessagesDay: { type: String, required: true, default: "", trim: true },
+    chatMessagesDay: {
+      type: String,
+      required: true,
+      default: () => dayKey(),
+      trim: true,
+    },
     chatMessages: { type: Number, required: true, default: 0, min: 0 },
   },
   { _id: false },

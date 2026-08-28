@@ -2,6 +2,12 @@
 // through this collection, so the anchor shape here is the load-bearing
 // decision in the whole schema.
 //
+// GATED READ. Chunks are content-scoped and shared across everyone who
+// uploaded the same file, so chunk text reaching a response is a paid-feature
+// read regardless of who paid to produce it. Chunk text is never returned by a
+// free path; `GET /documents/:id/text` serves extracted page text, which is
+// the user's own uploaded content, not a derived artifact.
+//
 // ANCHOR DESIGN
 //
 // Every chunk carries both a page range and a character range:

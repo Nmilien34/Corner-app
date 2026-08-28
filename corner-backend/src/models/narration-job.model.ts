@@ -4,9 +4,30 @@
 // same file share the generated audio instead of paying TTS twice — the same
 // dedupe reasoning as document-content.model.ts. requestedBy records who paid
 // for it; it is provenance, not ownership.
+//
+// ENTITLEMENT IS CHECKED ON ACCESS, NEVER ON GENERATION.
+//
+// Because this collection is content-scoped and deduped, a free user can
+// request exactly the {content, version, mode, voice, speed} tuple a paying
+// user already generated and get a cache hit. A gate that runs only on the
+// path that CREATES a job is therefore bypassable by asking for something that
+// already exists — and the more popular the file, the more likely that works.
+//
+// `voiceTier` records what the artifact requires, so the gate is a property of
+// the stored artifact rather than something re-derived from the request. Every
+// read path — status, manifest, segment URLs — gates on it. See
+// middleware/require-entitlement.middleware.ts.
 
-import type { NarrationMode, NarrationStatus } from "@corner/shared";
-import { NARRATION_MODES, NARRATION_STATUSES } from "@corner/shared";
+import type {
+  EntitlementTier,
+  NarrationMode,
+  NarrationStatus,
+} from "@corner/shared";
+import {
+  ENTITLEMENT_TIERS,
+  NARRATION_MODES,
+  NARRATION_STATUSES,
+} from "@corner/shared";
 import mongoose, { Schema } from "mongoose";
 import type { Document, Types } from "mongoose";
 import { applyApiTransforms } from "./model-utils";
@@ -17,6 +38,7 @@ export interface NarrationJobDocument extends Document<Types.ObjectId> {
   requestedBy: Types.ObjectId;
   mode: NarrationMode;
   voiceId: string;
+  voiceTier: EntitlementTier;
   speed: number;
   status: NarrationStatus;
   progressPercent: number;
@@ -45,6 +67,14 @@ const narrationJobSchema = new Schema<NarrationJobDocument>(
 
     mode: { type: String, enum: NARRATION_MODES, required: true },
     voiceId: { type: String, required: true, trim: true },
+    // Captured at generation, enforced on every read. A premium-voice
+    // narration stays premium no matter who later asks for it.
+    voiceTier: {
+      type: String,
+      enum: ENTITLEMENT_TIERS,
+      required: true,
+      default: "free",
+    },
     speed: { type: Number, required: true, default: 1, min: 0.5, max: 3 },
 
     status: {

@@ -1,0 +1,65 @@
+# Two services from one repo: the API and the background worker.
+#
+# Leanient's root manifest is the shape being followed (Pepta has none). The
+# worker is the addition — parsing, embedding, narration and extraction are all
+# far too slow for a request cycle.
+
+services:
+  - type: web
+    name: corner-backend
+    runtime: node
+    plan: starter
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /healthz
+    # --include=dev forces devDependencies (TypeScript, @types/*) to install
+    # even though NODE_ENV=production, because the build compiles TS. Runtime
+    # only needs dist/.
+    buildCommand: npm install --include=dev && npm run build -w @corner/shared && npm run build -w @corner/backend
+    startCommand: npm run start -w @corner/backend
+    envVars: &backendEnv
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8080
+      - key: LOG_LEVEL
+        value: info
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 30d
+      - key: STORAGE_ENDPOINT
+        sync: false
+      - key: STORAGE_REGION
+        value: auto
+      - key: STORAGE_BUCKET
+        sync: false
+      - key: STORAGE_ACCESS_KEY_ID
+        sync: false
+      - key: STORAGE_SECRET_ACCESS_KEY
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: EMBEDDINGS_API_KEY
+        sync: false
+      - key: TTS_API_KEY
+        sync: false
+      - key: REVENUECAT_WEBHOOK_SECRET
+        sync: false
+      - key: REVENUECAT_SECRET_API_KEY
+        sync: false
+
+  # Same build, different entry point. The worker polls the Mongo-backed queue;
+  # it binds no port and has no health check path, so Render runs it as a
+  # background worker rather than a web service.
+  - type: worker
+    name: corner-worker
+    runtime: node
+    plan: starter
+    branch: main
+    autoDeploy: true
+    buildCommand: npm install --include=dev && npm run build -w @corner/shared && npm run build -w @corner/backend
+    startCommand: npm run start:worker -w @corner/backend
+    envVars: *backendEnv

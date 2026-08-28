@@ -57,7 +57,6 @@ export interface DocumentContentDocument extends Document<Types.ObjectId> {
   parseError?: string;
   parsedAt?: Date;
   ocrApplied: boolean;
-  referenceCount: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -116,18 +115,30 @@ const documentContentSchema = new Schema<DocumentContentDocument>(
     parsedAt: { type: Date },
     ocrApplied: { type: Boolean, required: true, default: false },
 
-    // How many Documents point here. Reaching 0 makes the blob and every
-    // derived artifact eligible for cleanup-orphaned-blobs. Deleting content
-    // while another user still references it is the failure this prevents.
-    referenceCount: { type: Number, required: true, default: 0, min: 0 },
+    // There is deliberately NO referenceCount here.
+    //
+    // A mutable counter has to be incremented and decremented by two different
+    // code paths that race: a delete can decrement to zero while a concurrent
+    // upload is creating a new reference, and the blob gets swept out from
+    // under a live library entry. Making that safe needs a transaction around
+    // every upload and delete.
+    //
+    // cleanup-orphaned-blobs instead ASKS the question at sweep time: which
+    // content has no Document pointing at it, and has been that way longer
+    // than the grace threshold. Correct by construction, no counter to drift,
+    // and a content record created seconds before its Document is protected by
+    // the age threshold rather than by lock ordering.
   },
   { timestamps: true, versionKey: false },
 );
 
 // The dedupe lookup. Unique: one content record per distinct file.
 documentContentSchema.index({ contentHash: 1 }, { unique: true });
-// Cleanup sweep: unreferenced content, oldest first.
-documentContentSchema.index({ referenceCount: 1, updatedAt: 1 });
+// The orphan sweep scans oldest-first and anti-joins against Document.contentId
+// (indexed there). The age threshold is what makes the sweep safe without a
+// counter: content younger than it is never a candidate, so the window between
+// creating content and creating its Document cannot be swept.
+documentContentSchema.index({ updatedAt: 1 });
 // Operator view of stuck or failed parses.
 documentContentSchema.index({ parseStatus: 1, updatedAt: -1 });
 

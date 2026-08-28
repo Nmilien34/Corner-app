@@ -11,7 +11,9 @@
     "start": "node dist/index.js",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "start:worker": "node dist/jobs/worker.js",
+    "dev:worker": "tsx watch src/jobs/worker.ts"
   },
   "dependencies": {
     "@corner/shared": "0.1.0",

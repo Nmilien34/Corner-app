@@ -7,6 +7,11 @@
 //
 // Content-scoped like chunks and audio: a summary of a file is the same
 // summary for everyone who uploaded it, so it is generated once.
+//
+// GATED READ. Being content-scoped makes this cache-hittable by a user who did
+// not pay to generate it, exactly as with NarrationJob. Summaries are a paid
+// feature, so the read path gates on entitlement — the absence of a generation
+// cost for THIS user is not evidence of entitlement.
 
 import type { SummaryScope } from "@corner/shared";
 import { SUMMARY_SCOPES } from "@corner/shared";

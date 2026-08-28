@@ -8,21 +8,25 @@ items**, and **document chat**, all sharing one parsing and embedding pipeline.
 
 ## Current state
 
-**Scaffold in progress.** Phase 1 (repo skeleton) and the data-model half of
-Phase 2 are done. There are no routes, no services, and no frontend yet.
+**Scaffold in progress.** Phase 1 and Phase 2 are done through routes,
+middleware and service interfaces. Handler bodies and job bodies are stubs.
 
 | Phase | State |
 |---|---|
 | 0 — Recon → `CONVENTIONS.md` | Done, gate passed |
 | 1 — Repo skeleton | Done |
-| 2 — Backend: data models | Done (12 models, 41 indexes) |
-| 2 — Backend: routes, services, jobs, `render.yaml` | Not started |
+| 2 — Data models | Done (12 models, 41 indexes) |
+| 2 — Routes, middleware, service interfaces | Done (every route answers, bodies return 501) |
+| 2 — Handler + job bodies | Not started |
 | 3 — Frontend | Not started |
-| 4 — Docs | Partial (`atlas-vector-index.md`, `OPEN-QUESTIONS.md`) |
+| 4 — Docs | Partial |
 
-The backend does not boot yet — there is no `app.ts` or `index.ts`. `npm run
-typecheck` and `npm run lint` pass, and the models register and resolve their
-indexes.
+Verified end to end: the API boots against a local Mongo and `GET /healthz`
+returns `{"status":"ok","database":true}`; every route responds (501 for
+scaffolded handlers, 402 for entitlement-gated ones on a free account, 400 on
+validation failure, 401 unauthenticated, 404 for unknown paths — no crashes);
+the worker starts, registers all 7 handlers, claims a job with an atomic lease
+and idles.
 
 ## Folder map
 
@@ -63,8 +67,16 @@ npm run typecheck
 npm run lint
 ```
 
-`npm run dev` starts the shared-package watcher and the backend. The backend
-has no entry point yet, so it will not serve anything until Phase 2 continues.
+Run the API and the worker:
+
+```bash
+npm run dev -w @corner/backend         # API on PORT (default 8080)
+npm run dev:worker -w @corner/backend  # queue worker
+```
+
+The worker warns at startup that the vector index is unusable against a local
+mongod. That is expected — Atlas Search does not exist locally, and only
+document chat depends on it.
 
 ## Where the env keys come from
 

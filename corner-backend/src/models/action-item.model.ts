@@ -5,6 +5,12 @@
 // uploaded the same file. The extraction that PRODUCES them is content-level
 // and cacheable — see docs/OPEN-QUESTIONS.md OQ-004 for how a cached
 // extraction is fanned out to a second user without re-paying the LLM.
+//
+// GATED FAN-OUT. That cache is the bypass risk: writing per-user rows from a
+// cached content-level extraction costs no LLM call, so the entitlement gate
+// must sit on the FAN-OUT, not on the extraction. A free user asking for
+// action items on a file someone else already processed must be refused at the
+// same point they would be refused on a cold file.
 
 import type { ActionItemStatus } from "@corner/shared";
 import { ACTION_ITEM_STATUSES } from "@corner/shared";

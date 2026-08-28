@@ -23,6 +23,17 @@ export const DOCUMENT_TYPES = [
 ] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
+/**
+ * What a stored artifact requires in order to be READ.
+ *
+ * Recorded on the artifact at generation time, not inferred from the request,
+ * because content-scoped artifacts are deduped: the second person to ask for a
+ * premium narration gets a cache hit, and a gate that only guards creation
+ * would wave them through.
+ */
+export const ENTITLEMENT_TIERS = ["free", "pro"] as const;
+export type EntitlementTier = (typeof ENTITLEMENT_TIERS)[number];
+
 export const NARRATION_MODES = ["verbatim", "podcast"] as const;
 export type NarrationMode = (typeof NARRATION_MODES)[number];
 
@@ -108,3 +119,21 @@ export const USAGE_UNITS = [
   "tts_seconds",
 ] as const;
 export type UsageUnit = (typeof USAGE_UNITS)[number];
+
+// ---- Embeddings -------------------------------------------------------------
+
+/**
+ * The embedding model and its output width.
+ *
+ * Declared here, in shared, rather than in the service, because three things
+ * must agree and none of them can detect a disagreement on its own: this
+ * constant, the Atlas Vector Search index definition
+ * (docs/atlas-vector-index.md), and whatever the provider actually returns.
+ *
+ * Atlas does NOT validate vector width against the index. A mismatch is
+ * accepted silently and returns bad results, so the embedding service asserts
+ * its own output against EMBEDDING_DIMENSIONS before writing.
+ */
+export const EMBEDDING_PROVIDER = "openai" as const;
+export const EMBEDDING_MODEL = "text-embedding-3-small" as const;
+export const EMBEDDING_DIMENSIONS = 1536 as const;
