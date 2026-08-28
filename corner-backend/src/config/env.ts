@@ -25,6 +25,20 @@ const envSchema = z.object({
 
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
 
+  // The database Corner expects to be connected to, asserted at boot.
+  //
+  // Corner currently shares a cluster with a shipped app, so "which database
+  // did the URI actually resolve to" stops being a rhetorical question. A
+  // connection string with no path silently lands in `test`, and one copied
+  // from a neighbouring service lands in THAT service's database — both look
+  // like a clean startup and neither shows up until data is in the wrong place.
+  MONGODB_DB_NAME: z.string().min(1).default("corner"),
+
+  // Connection pool ceiling. Mongoose defaults to 100 per process; with an API
+  // and a worker that is up to 200 sockets opened against a cluster that also
+  // serves production traffic. Corner has no load that needs them.
+  MONGODB_MAX_POOL_SIZE: z.coerce.number().int().positive().default(10),
+
   // 64 characters minimum, adopting Pepta's stronger bound over Leanient's 32.
   JWT_SECRET: z
     .string()
