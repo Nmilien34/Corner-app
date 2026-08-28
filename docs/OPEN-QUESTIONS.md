@@ -305,8 +305,22 @@ Option A is the one that preserves the guarantee by construction rather than by 
 
 ## OQ-010 — Should verbatim narration be on-device and podcast cloud-only?
 
-**Status:** OPEN — logged with the economics attached so the decision is made on numbers.
-**Needed by:** before narration ships. Not blocking the pipeline.
+**Status:** OPEN — **BLOCKER ON VERBATIM NARRATION.** Not a general open question any more.
+**Blocks:** verbatim mode, follow-along highlighting, and the choice of a verbatim TTS provider.
+**Does not block:** podcast mode, which ships on OpenAI `tts-1` with no timing data (ADR 0004).
+
+### Why this is now a blocker
+
+ADR 0004 defers verbatim entirely until this is answered, because the answer
+determines whether Corner needs to pay for timing data at all.
+
+If verbatim goes on-device, the platform TTS engines supply word boundaries for
+free and the timestamp requirement disappears — no cloud provider has to emit or
+recover them. If verbatim goes cloud-side, forced alignment at 1.00×–1.30× is
+the path, and a provider decision follows.
+
+Building verbatim before answering this risks paying for timestamp capability
+that on-device TTS would have provided for nothing.
 
 ### The shape
 

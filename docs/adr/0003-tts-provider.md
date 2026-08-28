@@ -1,6 +1,15 @@
 # ADR 0003 — TTS provider: OpenAI
 
-**Status:** Accepted (2026-08-28). **The provider half is superseded by ADR 0004**, which re-examines it on timestamp capability — OpenAI TTS returns no alignment data of any kind, which this ADR did not consider.
+**Status:** Partially superseded (2026-08-28).
+
+**SUPERSEDED — the provider decision.** This ADR chose OpenAI on cost before the
+timing requirement was examined. OpenAI TTS returns **no alignment data in any
+format**, which this ADR did not consider. `docs/adr/0004-tts-timestamps.md`
+re-decides the provider question on timestamp capability and is authoritative.
+
+**STILL STANDS — everything else.** The economics, the 53× podcast/verbatim gap,
+the chapter-scoped lazy generation decision, and the credits framing are all
+unaffected and are still the reasoning behind ADR 0004's outcome.
 **Decision:** **OpenAI `tts-1`** for narration. ElevenLabs is recorded as a
 possible premium tier only, not a general-purpose option.
 

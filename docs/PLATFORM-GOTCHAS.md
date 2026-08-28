@@ -38,9 +38,26 @@ explicit re-save still returned 200.
   the case worth paying to discover.
 
 **Why it matters here.** Corner's key is the credential for a project with a
-spend limit and a credit grant. Image generation is orders of magnitude more
-expensive per call than anything Corner legitimately does, so a key that can
-reach it has a much larger blast radius than intended.
+credit grant. Image generation is orders of magnitude more expensive per call
+than anything Corner legitimately does, so a key that can reach it has a much
+larger blast radius than intended.
+
+### The fix for this class is a spend cap, not a scope setting
+
+**A project-level spend limit is the control that actually holds.** It bounds
+the exposure regardless of how the permission question resolves, and it does not
+depend on a dashboard telling the truth about what a key can reach.
+
+Scope settings are worth configuring — they are defence in depth and they
+express intent. But they are **unverifiable except by probing**, and probing a
+paid endpoint costs money precisely in the case where the scope failed. A cap is
+verifiable, cheap, and fails safe.
+
+The general form: when a control cannot be verified by inspection, prefer a
+control that bounds the blast radius over one that depends on the unverifiable
+thing being correct. Corner's `assertExpectedBucket()` and `assertCornerKey()`
+are the same move applied to storage — they do not trust configuration, they
+constrain what the code can reach.
 
 ---
 

@@ -1,6 +1,6 @@
 # ADR 0004 — TTS provider, resolved on timestamp capability
 
-**Status:** OPEN — numbers only. No provider chosen.
+**Status:** **ACCEPTED (2026-08-28). We do not buy timestamps.**
 **Supersedes the provider half of ADR 0003**, which picked OpenAI on cost before
 the timing requirement was examined.
 
@@ -34,26 +34,48 @@ At ~150 wpm and ~5.5 characters per word, one hour of speech ≈ **49,500
 characters**. Book = the measured 350-page corpus (1,325,480 chars ≈ **26.8
 hours** of audio). Episode = ~25,000 chars ≈ **30 minutes**.
 
-| Option | Timings? | $/hr audio | ×OpenAI | $/book (verbatim) | $/episode (podcast) |
-|---|---|---|---|---|---|
-| **OpenAI `tts-1`** | **none** | 0.743 | 1.00× | 19.88 | 0.375 |
-| OpenAI `tts-1-hd` | none | 1.485 | 2.00× | 39.76 | 0.750 |
-| **OpenAI + `gpt-4o-mini-transcribe`** | **word** | **0.923** | **1.24×** | **24.70** | **0.466** |
-| **OpenAI + Whisper** | **word** | **1.103** | **1.48×** | **29.52** | **0.557** |
-| **ElevenLabs Flash** | **character** | 2.475 | **3.33×** | 66.27 | 1.250 |
-| ElevenLabs Multilingual | character | 4.950 | 6.67× | 132.55 | 2.500 |
-| EL Business overage | character | 5.940 | 8.00× | 159.06 | 3.000 |
-| EL Scale overage | character | 8.910 | 12.00× | 238.59 | 4.500 |
-| EL Pro overage | character | 11.880 | 16.00× | 318.12 | 6.000 |
-| EL Creator overage | character | 14.850 | **20.00×** | 397.64 | 7.500 |
+| Option | Timings | Anchored to our text? | $/hr | ×base | $/book | $/episode |
+|---|---|---|---|---|---|---|
+| **OpenAI `tts-1`** | **none** | — | 0.743 | 1.00× | 19.88 | 0.375 |
+| OpenAI `tts-1-hd` | none | — | 1.485 | 2.00× | 39.76 | 0.750 |
+| **+ WhisperX** (self-hosted) | word | **yes, by construction** | ~0.743 + compute | ~1.00× | ~19.88 + compute | ~0.375 + compute |
+| **+ ElevenLabs Forced Alignment** | word | **yes, by construction** | **0.963** | **1.30×** | **25.77** | **0.486** |
+| + `gpt-4o-mini-transcribe` | word | **no — transcription** | 0.923 | 1.24× | 24.70 | 0.466 |
+| + `whisper-1` | word | **no — transcription** | 1.103 | 1.48× | 29.52 | 0.557 |
+| **ElevenLabs Flash** | **character, native** | yes | 2.475 | **3.33×** | 66.27 | 1.250 |
+| EL Multilingual | character, native | yes | 4.950 | 6.67× | 132.55 | 2.500 |
+| EL Business → Creator overage | character, native | yes | 5.94–14.85 | 8×–**20×** | 159–398 | 3.00–7.50 |
 
-**Forced alignment is materially cheaper than buying timestamps.** Recovering
-word timings after generation costs **1.24×–1.48×** OpenAI's base rate. The
-cheapest provider that emits them natively is **3.33×**, and the overage rates
-most likely to apply at real volume run **12×–20×**.
+**Forced alignment costs 1.00×–1.30×. Buying native timestamps costs 3.33× at
+best and 8×–20× at realistic overage rates.**
 
-Against the $5,000 credit grant, in verbatim books: **251** on OpenAI alone,
-**~202** with alignment, **75** on ElevenLabs Flash, **12** at Creator overage.
+### Correction: forced alignment is not transcription
+
+An earlier revision of this ADR costed the cheap option as *transcription* and
+objected that it "transcribes what the model heard, not what was sent", making
+drift a real risk. **That objection was misapplied and is withdrawn.**
+
+Drift is a property of transcription, not of alignment. Corner always knows the
+exact script text it sent to TTS, so the correct tool takes **known text + audio
+in, and returns timings for that text**. It cannot produce different text
+because it is not producing text at all.
+
+That distinction also changes *which* tools qualify:
+
+- **Forced alignment** — ElevenLabs' dedicated endpoint, or WhisperX
+  self-hosted. Output is anchored to our text by construction.
+- **Transcription** — `whisper-1` and `gpt-4o-transcribe` are speech-to-text.
+  **OpenAI offers no forced-alignment endpoint**, so "OpenAI + Whisper" is a
+  transcription path and the drift objection genuinely applies to it. Those rows
+  are kept and labelled, not deleted, because the distinction is the point.
+
+This is the same principle as ADR 0001: never let two systems independently
+produce text that then has to match. Forced alignment does not; transcription
+does.
+
+**What survives the correction:** the **25 MB / ~26 minutes at 128 kbps** upload
+constraint is real either way, so chapters longer than that must be split and
+restitched.
 
 ## What each option actually gives you
 
@@ -81,39 +103,30 @@ the 20× overage figure.
 
 ### Any TTS + forced alignment — decouples provider from timing
 
-Generate audio anywhere, then transcribe it with word timestamps and align
-against the known input text.
+Generate audio anywhere, then align it against **the script we already have**.
 
-| Aligner | $/hr audio | Granularity |
+| Aligner | $/hr audio | Kind |
 |---|---|---|
-| `gpt-4o-mini-transcribe` | 0.180 | word |
-| `whisper-1` | 0.360 | word |
-| ElevenLabs Forced Alignment | same rate as their STT | word |
+| WhisperX (self-hosted) | compute only | forced alignment |
+| ElevenLabs Forced Alignment | 0.22 | forced alignment |
+| `gpt-4o-mini-transcribe` | 0.18 | transcription |
+| `whisper-1` | 0.36 | transcription |
 
-ElevenLabs also sells alignment standalone (10 h audio / 3 GB / 675,000
-character limits), so this strategy does not require choosing them for
-generation.
+ElevenLabs sells alignment standalone (10 h audio / 3 GB / 675,000 character
+limits), so this strategy does not require choosing them for generation.
 
 **The costs beyond money:**
 
 - **A pipeline step that can fail on its own.** Generation succeeding and
-  alignment failing leaves audio with no timings — a state the schema has to
+  alignment failing leaves audio with no timings — a state the schema must
   represent, and a retry that must not regenerate the audio.
-- **Latency.** Transcription runs roughly real-time or faster, so a 30-minute
+- **Latency.** Alignment runs roughly real-time or faster, so a 30-minute
   chapter adds tens of seconds before the timing map exists. Tolerable for
-  chapter-scoped lazy generation (ADR 0003), unacceptable for a whole book.
-- **A hard operational limit found while costing this:** OpenAI's audio upload
-  cap is **25 MB**, which at the measured 128 kbps is **~26 minutes of audio per
-  request**. Chapters longer than that must be split for alignment and
-  restitched. That is a real chunking constraint, not a footnote.
-- **Word-level, not character-level.** Character offsets must be interpolated
-  within a word. For sentence highlighting that is invisible; for
-  character-precise highlighting it is not.
-- **Alignment can drift from the source text.** The transcript is what the model
-  *heard*, not what was sent. Numbers, abbreviations and proper nouns are where
-  it diverges, and every divergence is an offset that no longer matches
-  `DocumentChunk.anchor`. This is the same silent-wrong-answer class as ADR 0001
-  — which is precisely what using one pdf.js on both sides was chosen to avoid.
+  chapter-scoped lazy generation (ADR 0003); unacceptable for a whole book.
+- **The 25 MB cap — ~26 minutes of audio per request** at the measured 128 kbps.
+  Longer chapters must be split and restitched. A real chunking constraint.
+- **Word-level, not character-level.** Character offsets are interpolated within
+  a word. Invisible for sentence highlighting; not for character-precise work.
 
 ---
 
@@ -151,6 +164,45 @@ competitor already has — while the differentiated mode gains nothing from it.
 on-device. If it should, the platform TTS engines supply their own word-boundary
 callbacks, and Corner needs no timestamp capability from any cloud provider.
 That question is unresolved, and it is upstream of this one.
+
+---
+
+## DECISION
+
+**We do not buy timestamps.**
+
+### Podcast mode ships on OpenAI `tts-1`, with no timing data
+
+It is the differentiated feature, it is ~53× cheaper per document, and
+**highlighting does not apply to it at all** — a generated adaptation has no
+corresponding text on the page to highlight. Timing data would be bought and
+unused.
+
+### Verbatim, and therefore follow-along highlighting, is DEFERRED
+
+Blocked on OQ-010. On-device verbatim would supply word boundaries from the
+platform for free and **delete this requirement entirely** — no cloud provider
+needs to emit or recover timings.
+
+Deferring costs nothing: verbatim is the commodity half, every competitor has
+it, and it is the expensive path. Building it before OQ-010 is answered risks
+paying for timestamp capability that on-device TTS would have provided free.
+
+### If verbatim later ships cloud-side, forced alignment is the path
+
+At **1.00×–1.30×** it is the cheapest option that produces timings anchored to
+our text. WhisperX self-hosted if the compute is already there; ElevenLabs
+Forced Alignment at $0.22/hr if not.
+
+**ElevenLabs stays recorded as a premium option only** — a paid upgrade where
+the user is choosing a better voice and the cost is attributable to them, not a
+default that multiplies unit cost across everyone. Flash at 3.33× remains the
+figure to re-cost if voice quality turns out to drive churn.
+
+### What this decision does not do
+
+It does not choose a verbatim provider. That decision is deferred with the
+feature, and OQ-010 is upstream of it.
 
 ## What is still unknown
 
