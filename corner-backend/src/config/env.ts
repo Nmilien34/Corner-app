@@ -114,11 +114,24 @@ const envSchema = z.object({
         return;
       }
 
-      if (!/^mongodb(\+srv)?:\/\/[^:]+:[^@]+@/.test(value)) {
+      // Credentials are required for Atlas (mongodb+srv) but NOT for a local
+      // mongod, which commonly runs without auth. Demanding them unconditionally
+      // rejected the very value .env.example ships as the local default —
+      // mongodb://127.0.0.1:27017/corner — so local development could not boot.
+      const hasCredentials = /^mongodb(\+srv)?:\/\/[^@/]+@/.test(value);
+      const isSrv = value.startsWith("mongodb+srv://");
+
+      if (isSrv && !hasCredentials) {
         add(
-          "has no username:password before the '@'. Atlas's copied string " +
-            "contains a <db_password> placeholder that must be replaced.",
+          "is an Atlas connection string with no username:password before the " +
+            "'@'. Atlas's copied string contains a <db_password> placeholder " +
+            "that must be replaced.",
         );
+        return;
+      }
+
+      if (hasCredentials && !/^mongodb(\+srv)?:\/\/[^:@/]+:[^@]+@/.test(value)) {
+        add("has an '@' but no username:password pair before it.");
         return;
       }
 
