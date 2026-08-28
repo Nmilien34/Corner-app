@@ -67,6 +67,14 @@ npm run typecheck
 npm run lint
 ```
 
+Before deploying, verify the database credential without waiting on a
+redeploy — it names the specific cause rather than just "Authentication
+failed":
+
+```bash
+npm run check:db -w @corner/backend
+```
+
 Run the API and the worker:
 
 ```bash

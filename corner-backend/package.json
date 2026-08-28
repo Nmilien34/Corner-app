@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "start:worker": "node dist/jobs/worker.js",
-    "dev:worker": "tsx watch src/jobs/worker.ts"
+    "dev:worker": "tsx watch src/jobs/worker.ts",
+    "check:db": "tsx src/scripts/check-db.ts"
   },
   "dependencies": {
     "@corner/shared": "0.1.0",
